@@ -942,7 +942,7 @@ export default function UltimateCorpExperience() {
         </div>
 
         <button onClick={() => setTerminalOpen(true)} className="flex items-center gap-2.5 px-5 py-2 rounded-full border border-white/10 hover:border-white/30 bg-white/[0.02] hover:bg-white/10 text-[9px] font-mono tracking-[0.2em] transition-all">
-          <TerminalIcon size={12} className="text-[#00ff88]" /> INITIATE VERSE
+          <TerminalIcon size={12} className="text-[#00ff88]" /> CMD
         </button>
       </nav>
 
@@ -953,7 +953,7 @@ export default function UltimateCorpExperience() {
         <section id="hero" className="min-h-screen w-full flex flex-col items-center justify-center px-6 relative pt-16 bg-black/40">
           <div className="text-center space-y-8 z-10">
             <div><GlitchLogo /></div>
-            <p className="max-w-xl mx-auto font-mono text-xs md:text-sm text-white/50 tracking-wide leading-relaxed">We are the quiet architects of what comes next.</p>
+            <p className="max-w-xl mx-auto font-mono text-xs md:text-sm text-white/50 tracking-wide leading-relaxed">We are the quiet architects of what comes <span className="text-[#ffaa00]">next.</span></p>
           </div>
           <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-[9px] font-mono tracking-[0.4em] text-white/30 animate-pulse">
             DISPLACE DOWN
