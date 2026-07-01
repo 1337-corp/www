@@ -13,8 +13,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://1337.cd"),
   title: "1337 Corp",
   description: "We are the quiet architects of what comes next.",
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
     title: "1337 Corp",
     description: "We are the quiet architects of what comes next.",
@@ -30,8 +34,18 @@ export const metadata: Metadata = {
   },
 };
 
+const organizationSchema = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "1337 Corp",
+  url: "https://1337.cd",
+  description: "We are the quiet architects of what comes next.",
+  slogan: "The quiet architects of what comes next.",
+};
+
 export const viewport: Viewport = {
   themeColor: "#05050a",
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -44,7 +58,13 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationSchema) }}
+        />
+        {children}
+      </body>
     </html>
   );
 }

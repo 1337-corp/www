@@ -1,26 +1,46 @@
 @import "tailwindcss";
 
+/* The site is unconditionally dark. No light-mode branch, no white flash. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background: #05050a;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #05050a;
+  color: #ededed;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/*
+ * When the custom JS cursor is active we hide the native pointer everywhere.
+ * The class is toggled by <CustomCursor> only on fine-pointer (non-touch)
+ * devices, so touch users keep their native cursor and never see a dead dot.
+ */
+.cursor-none,
+.cursor-none * {
+  cursor: none !important;
+}
+
+/*
+ * Safety net for users who ask for reduced motion. The heavy WebGL / canvas
+ * systems are gated in JS; this neutralises CSS-driven motion (Tailwind
+ * transitions, animate-pulse, etc.) as a belt-and-braces fallback.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

@@ -1,13 +1,48 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
-import { Stars } from "@react-three/drei";
-import * as THREE from "three";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useState, useEffect, useRef, useCallback, useMemo, useSyncExternalStore } from "react";
+import dynamic from "next/dynamic";
+import { motion, AnimatePresence, MotionConfig, useReducedMotion } from "framer-motion";
 import {
-  Terminal as TerminalIcon, Shield, Zap, X, Command, Star, Eye, ChevronRight, Cpu
+  Terminal as TerminalIcon, Shield, Zap, X, Command, Star, Eye, ChevronRight, Menu
 } from "lucide-react";
+import CoreFallback from "./CoreFallback";
+import { isWebGLAvailable } from "./graphics";
+
+// The 3D core (three.js + drei) is code-split out of the initial bundle. It
+// only downloads client-side, and CoreFallback covers the brief load window.
+const VeilCanvas = dynamic(() => import("./VeilCanvas"), {
+  ssr: false,
+  loading: () => null,
+});
+
+// =========================================================================
+// CLIENT-CAPABILITY HOOKS (SSR-safe via useSyncExternalStore)
+// =========================================================================
+// These read live browser capabilities without setState-in-effect and without
+// hydration drift: the server snapshot is always the "safe" value, and the
+// real value is adopted on the client immediately after hydration.
+const noopSubscribe = () => () => {};
+
+function useMediaQuery(query: string): boolean {
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      const mql = window.matchMedia(query);
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    },
+    [query]
+  );
+  return useSyncExternalStore(
+    subscribe,
+    () => window.matchMedia(query).matches,
+    () => false
+  );
+}
+
+function useWebGLSupported(): boolean {
+  return useSyncExternalStore(noopSubscribe, isWebGLAvailable, () => false);
+}
 
 // =========================================================================
 // TYPES & INTERFACES
@@ -58,6 +93,9 @@ interface TerminalLine {
   text: string;
   type: "system" | "input" | "error" | "success" | "header";
 }
+
+// Commands the contact terminal recognises (also drives Tab autocomplete).
+const TERMINAL_DIRECTIVES = ["contact", "clear", "exit", "help"];
 
 // =========================================================================
 // DATA ARCHIVES
@@ -135,125 +173,6 @@ const operatives: Operative[] = [
 ];
 
 // =========================================================================
-// THE VEIL CRUCIBLE: 3D THREE.JS QUANTUM INTEGRATION
-// =========================================================================
-function TheVeilCore({
-  mouse,
-  pulseTrigger,
-  activeColor
-}: {
-  mouse: React.MutableRefObject<{ x: number; y: number }>;
-  pulseTrigger: number;
-  activeColor: string;
-}) {
-  const groupRef = useRef<THREE.Group>(null!);
-  const knotRef = useRef<THREE.Mesh>(null!);
-  const icoRef = useRef<THREE.Mesh>(null!);
-  const particlesRef = useRef<THREE.Points>(null!);
-
-  const particleCount = 2400;
-  const currentCoreColor = useRef(new THREE.Color("#c5a26f"));
-  const targetCoreColor = useMemo(() => new THREE.Color(activeColor), [activeColor]);
-
-  const { homePositions } = useMemo(() => {
-    const homes = new Float32Array(particleCount * 3);
-    for (let i = 0; i < particleCount; i++) {
-      const i3 = i * 3;
-      const radiusBase = 2.4 + (i % 4) * 0.5 + (Math.random() - 0.5) * 0.3;
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1) * 0.8;
-
-      homes[i3] = radiusBase * Math.sin(phi) * Math.cos(theta);
-      homes[i3 + 1] = radiusBase * Math.sin(phi) * Math.sin(theta) * 0.8;
-      homes[i3 + 2] = radiusBase * Math.cos(phi);
-    }
-    return { homePositions: homes };
-  }, []);
-
-  const positions = useMemo(() => new Float32Array(homePositions), [homePositions]);
-  const velocities = useMemo(() => new Float32Array(particleCount * 3), [particleCount]);
-  const pulseRef = useRef(0);
-
-  useEffect(() => {
-    if (pulseTrigger > 0 && particlesRef.current) {
-      pulseRef.current = 1.0;
-      const posArr = (particlesRef.current.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
-      for (let i = 0; i < particleCount; i++) {
-        const i3 = i * 3;
-        const len = Math.sqrt(posArr[i3] ** 2 + posArr[i3 + 1] ** 2 + posArr[i3 + 2] ** 2) || 1;
-        velocities[i3] += (posArr[i3] / len) * 0.9;
-        velocities[i3 + 1] += (posArr[i3 + 1] / len) * 0.9;
-        velocities[i3 + 2] += (posArr[i3 + 2] / len) * 0.9;
-      }
-    }
-  }, [pulseTrigger, particleCount, velocities]);
-
-  useFrame((state, delta) => {
-    if (!groupRef.current || !particlesRef.current) return;
-
-    const time = state.clock.elapsedTime;
-    const posAttr = particlesRef.current.geometry.attributes.position as THREE.BufferAttribute;
-    const posArr = posAttr.array as Float32Array;
-
-    currentCoreColor.current.lerp(targetCoreColor, 0.05);
-    if (knotRef.current) {
-      (knotRef.current.material as THREE.MeshPhongMaterial).color.copy(currentCoreColor.current);
-      knotRef.current.rotation.y = time * 0.15;
-      knotRef.current.rotation.x = Math.sin(time * 0.2) * 0.1;
-    }
-    if (icoRef.current) {
-      icoRef.current.rotation.y = -time * 0.25;
-    }
-
-    groupRef.current.position.x = THREE.MathUtils.lerp(groupRef.current.position.x, mouse.current.x * 2.5, 0.05);
-    groupRef.current.position.y = THREE.MathUtils.lerp(groupRef.current.position.y, mouse.current.y * 2.0, 0.05);
-
-    for (let i = 0; i < particleCount; i++) {
-      const i3 = i * 3;
-      velocities[i3] += (homePositions[i3] - posArr[i3]) * 0.005;
-      velocities[i3 + 1] += (homePositions[i3 + 1] - posArr[i3 + 1]) * 0.005;
-      velocities[i3 + 2] += (homePositions[i3 + 2] - posArr[i3 + 2]) * 0.005;
-
-      if (pulseRef.current > 0.01) {
-        posArr[i3] += velocities[i3] * delta * 45;
-        posArr[i3 + 1] += velocities[i3 + 1] * delta * 45;
-        posArr[i3 + 2] += velocities[i3 + 2] * delta * 45;
-      }
-
-      posArr[i3] += Math.sin(time + i) * 0.002;
-      posArr[i3 + 1] += Math.cos(time * 0.8 + i) * 0.002;
-
-      velocities[i3] *= 0.95;
-      velocities[i3 + 1] *= 0.95;
-      velocities[i3 + 2] *= 0.95;
-    }
-    posAttr.needsUpdate = true;
-
-    if (pulseRef.current > 0) pulseRef.current = Math.max(0, pulseRef.current - delta * 2);
-  });
-
-  return (
-    <group ref={groupRef}>
-      <Stars radius={80} depth={30} count={60} factor={2} saturation={0} fade speed={0.2} />
-      <mesh ref={knotRef}>
-        <torusKnotGeometry args={[1.5, 0.22, 120, 16, 3, 4]} />
-        <meshPhongMaterial color="#c5a26f" emissive="#111118" shininess={40} wireframe />
-      </mesh>
-      <mesh ref={icoRef} scale={0.7}>
-        <icosahedronGeometry args={[1.2]} />
-        <meshPhongMaterial color="#ffffff" transparent opacity={0.05} wireframe />
-      </mesh>
-      <points ref={particlesRef}>
-        <bufferGeometry>
-          <bufferAttribute attach="attributes-position" args={[positions, 3]} />
-        </bufferGeometry>
-        <pointsMaterial size={0.04} color={activeColor} transparent opacity={0.6} depthWrite={false} />
-      </points>
-    </group>
-  );
-}
-
-// =========================================================================
 // COMPONENT: TERMINAL CONTACT MODAL
 // =========================================================================
 interface TerminalModalProps {
@@ -274,14 +193,15 @@ const TerminalModal: React.FC<TerminalModalProps> = ({ isOpen, onClose }) => {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const bufferEndRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const scrambleRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const CONTACT_EMAIL = "hello@1337.cd";
-
-  const validDirectives = ["contact", "clear", "exit", "help"];
 
   const autocompleteSuggestion = useMemo(() => {
     if (!input) return "";
     const clean = input.trim().toLowerCase();
-    const match = validDirectives.find(d => d.startsWith(clean));
+    const match = TERMINAL_DIRECTIVES.find(d => d.startsWith(clean));
     return match && match !== clean ? match.substring(clean.length) : "";
   }, [input]);
 
@@ -329,15 +249,17 @@ const TerminalModal: React.FC<TerminalModalProps> = ({ isOpen, onClose }) => {
           setShowContact(true);
           addLines([{ text: "Opening contact channel...", type: "system" }]);
 
+          if (scrambleRef.current) clearInterval(scrambleRef.current);
           let i = 0;
-          const interval = setInterval(() => {
+          scrambleRef.current = setInterval(() => {
             const scrambled = CONTACT_EMAIL.split("").map((ch, idx) =>
               idx < Math.floor((i / 10) * CONTACT_EMAIL.length) ? ch : String.fromCharCode(33 + Math.floor(Math.random() * 94))
             ).join("");
             setDecryptedEmail(scrambled);
             i++;
             if (i > 10) {
-              clearInterval(interval);
+              if (scrambleRef.current) clearInterval(scrambleRef.current);
+              scrambleRef.current = null;
               setDecryptedEmail(CONTACT_EMAIL);
             }
           }, 55);
@@ -354,7 +276,9 @@ const TerminalModal: React.FC<TerminalModalProps> = ({ isOpen, onClose }) => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       handleExecute(input);
-    } else if (e.key === "Tab") {
+    } else if (e.key === "Tab" && !e.shiftKey) {
+      // Forward Tab autocompletes. Shift+Tab is left to the browser/focus-trap
+      // so keyboard users can still reach the Close button.
       e.preventDefault();
       if (autocompleteSuggestion) setInput(prev => prev + autocompleteSuggestion);
     } else if (e.key === "ArrowUp") {
@@ -377,13 +301,55 @@ const TerminalModal: React.FC<TerminalModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  // Dialog-level keys: Escape dismisses; Tab is trapped inside the modal.
+  const handleDialogKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      onClose();
+      return;
+    }
+    if (e.key !== "Tab" || !dialogRef.current) return;
+    // The command input owns Tab (autocomplete) and preventDefaults it itself,
+    // so don't let the trap yank focus off the input on every Tab press.
+    if (e.target === inputRef.current) return;
+    const focusables = dialogRef.current.querySelectorAll<HTMLElement>(
+      'button, input, [href], [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
   useEffect(() => {
     if (bufferEndRef.current) bufferEndRef.current.scrollIntoView({ behavior: "smooth" });
   }, [history, decryptedEmail]);
 
+  // Focus management + teardown: remember the trigger, focus the input on open,
+  // stop any running decrypt animation and restore focus on close.
   useEffect(() => {
-    if (isOpen && inputRef.current) setTimeout(() => inputRef.current?.focus(), 50);
+    if (isOpen) {
+      triggerRef.current = (document.activeElement as HTMLElement) ?? null;
+      const t = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(t);
+    }
+    if (scrambleRef.current) {
+      clearInterval(scrambleRef.current);
+      scrambleRef.current = null;
+    }
+    triggerRef.current?.focus?.();
   }, [isOpen]);
+
+  // Clear the interval if the component unmounts mid-animation.
+  useEffect(() => () => {
+    if (scrambleRef.current) clearInterval(scrambleRef.current);
+  }, []);
 
   const getLineStyle = (type: TerminalLine["type"]) => {
     if (type === "header") return "text-white font-semibold tracking-wider";
@@ -396,7 +362,18 @@ const TerminalModal: React.FC<TerminalModalProps> = ({ isOpen, onClose }) => {
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/85 p-4 backdrop-blur-md">
+        <motion.div
+          key="terminal-backdrop"
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="1337 contact terminal"
+          onKeyDown={handleDialogKeyDown}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/85 p-4 backdrop-blur-md"
+        >
           <motion.div
             initial={{ opacity: 0, scale: 0.98, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -412,10 +389,10 @@ const TerminalModal: React.FC<TerminalModalProps> = ({ isOpen, onClose }) => {
                 </div>
                 <div className="text-white/40 tracking-[3px]">TERMINAL</div>
               </div>
-              <button onClick={onClose} className="text-white/30 hover:text-white"><X size={14} /></button>
+              <button onClick={onClose} aria-label="Close terminal" className="flex items-center justify-center w-11 h-11 -my-2 -mr-3 text-white/30 hover:text-white"><X size={14} /></button>
             </div>
 
-            <div className="h-[380px] p-6 font-mono text-[11px] overflow-y-auto bg-[#040408]/90 space-y-1.5" onClick={() => inputRef.current?.focus()}>
+            <div className="h-[min(380px,50dvh)] p-6 font-mono text-[11px] overflow-y-auto bg-[#040408]/90 space-y-1.5" onClick={() => inputRef.current?.focus()}>
               {history.map(line => (
                 <div key={line.id} className={`whitespace-pre-wrap leading-relaxed tracking-wide ${getLineStyle(line.type)}`}>
                   {line.text}
@@ -441,7 +418,11 @@ const TerminalModal: React.FC<TerminalModalProps> = ({ isOpen, onClose }) => {
                   onKeyDown={handleKeyDown}
                   className="w-full bg-transparent outline-none text-white z-10"
                   placeholder="type command..."
+                  aria-label="Terminal command input"
                   autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
                 />
                 {input && autocompleteSuggestion && (
                   <span className="absolute left-0 text-white/20 pointer-events-none">
@@ -449,10 +430,10 @@ const TerminalModal: React.FC<TerminalModalProps> = ({ isOpen, onClose }) => {
                   </span>
                 )}
               </div>
-              <div className="text-[9px] text-white/20 tracking-widest hidden md:block">[TAB] AUTOCOMPLETE • [↑↓] HISTORY</div>
+              <div className="text-[9px] text-white/20 tracking-widest hidden md:block">[TAB] AUTOCOMPLETE • [↑↓] HISTORY • [ESC] CLOSE</div>
             </div>
           </motion.div>
-        </div>
+        </motion.div>
       )}
     </AnimatePresence>
   );
@@ -465,8 +446,15 @@ const CustomCursor: React.FC = () => {
   const [position, setPosition] = useState({ x: -100, y: -100 });
   const [isHovering, setIsHovering] = useState(false);
   const [isClicking, setIsClicking] = useState(false);
+  // Only devices with a real hovering pointer get the custom cursor. Touch /
+  // coarse-pointer devices keep their native cursor (no dead dot, no hidden
+  // pointer). SSR renders nothing, so there is no hydration flash.
+  const fine = useMediaQuery("(hover: hover) and (pointer: fine)");
 
   useEffect(() => {
+    if (!fine) return;
+    document.documentElement.classList.add("cursor-none");
+
     const updatePosition = (e: MouseEvent) => {
       setPosition({ x: e.clientX, y: e.clientY });
     };
@@ -490,12 +478,15 @@ const CustomCursor: React.FC = () => {
     document.addEventListener("mouseover", handleMouseOver);
 
     return () => {
+      document.documentElement.classList.remove("cursor-none");
       window.removeEventListener("mousemove", updatePosition);
       window.removeEventListener("mousedown", handleMouseDown);
       window.removeEventListener("mouseup", handleMouseUp);
       document.removeEventListener("mouseover", handleMouseOver);
     };
-  }, []);
+  }, [fine]);
+
+  if (!fine) return null;
 
   return (
     <>
@@ -529,21 +520,17 @@ const CustomCursor: React.FC = () => {
 // =========================================================================
 // COMPONENT: LAYERED CANVAS SPACE (QUANTUM FIELD + NEON PARTICLES)
 // =========================================================================
-const CombinedBackgroundSpace: React.FC<{ scrollProgress: number }> = ({ scrollProgress }) => {
+const CombinedBackgroundSpace: React.FC<{ scrollRef: React.RefObject<number>; reduced: boolean }> = ({ scrollRef, reduced }) => {
   const quantumCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const particleCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const mouseRef = useRef({ x: -1000, y: -1000, targetX: -1000, targetY: -1000, active: false });
   const particlesRef = useRef<Particle[]>([]);
 
-  // Capture scrollProgress in a ref to feed into the loop without breaking the thread
-  const scrollProgressRef = useRef(scrollProgress);
-  useEffect(() => {
-    scrollProgressRef.current = scrollProgress;
-  }, [scrollProgress]);
-
   const initParticles = useCallback((width: number, height: number) => {
     const particles: Particle[] = [];
-    const count = Math.floor((width * height) / 22000);
+    // Cap the count so the O(n²) connection pass and per-frame draw stay bounded
+    // on very large / high-DPI displays instead of scaling with screen area.
+    const count = Math.min(Math.floor((width * height) / 22000), 180);
     for (let i = 0; i < count; i++) {
       particles.push({
         x: Math.random() * width,
@@ -574,17 +561,34 @@ const CombinedBackgroundSpace: React.FC<{ scrollProgress: number }> = ({ scrollP
     const resize = () => {
       const w = window.innerWidth;
       const h = window.innerHeight;
-      const dpr = window.devicePixelRatio || 1;
+      // Cap DPR at 2 so 3x/4x displays don't quadruple per-frame fill cost.
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
+      // Canonical hi-DPI setup: the backing store is DPR-scaled for crispness,
+      // but the *display* size is pinned to the viewport in CSS pixels. Without
+      // the explicit style size a `fixed inset-0` canvas renders at its
+      // attribute size in CSS px, so a DPR-scaled width would overflow to 2x the
+      // viewport on retina — drawing coordinates (and the cursor) then desync.
       qCanvas.width = w * dpr;
       qCanvas.height = h * dpr;
+      qCanvas.style.width = `${w}px`;
+      qCanvas.style.height = `${h}px`;
+      qCtx.setTransform(1, 0, 0, 1, 0, 0);
       qCtx.scale(dpr, dpr);
 
-      pCanvas.width = w;
-      pCanvas.height = h;
+      pCanvas.width = w * dpr;
+      pCanvas.height = h * dpr;
+      pCanvas.style.width = `${w}px`;
+      pCanvas.style.height = `${h}px`;
+      pCtx.setTransform(1, 0, 0, 1, 0, 0);
+      pCtx.scale(dpr, dpr);
 
       initNodes(w, h);
       initParticles(w, h);
+
+      // Setting canvas.width/height cleared both backing stores. When reduced,
+      // the loop never reschedules, so repaint the single static frame now.
+      if (reduced) loop();
     };
 
     const initNodes = (w: number, h: number) => {
@@ -625,7 +629,6 @@ const CombinedBackgroundSpace: React.FC<{ scrollProgress: number }> = ({ scrollP
     window.addEventListener("resize", resize);
     window.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseleave", handleMouseLeave);
-    resize();
 
     let time = 0;
 
@@ -640,8 +643,9 @@ const CombinedBackgroundSpace: React.FC<{ scrollProgress: number }> = ({ scrollP
 
       qCtx.clearRect(0, 0, w, h);
 
-      // Read cleanly from the mutable ref without re-triggering the parent thread setup
-      const currentScroll = scrollProgressRef.current;
+      // Read cleanly from the shared ref — never a prop, so scrolling never
+      // re-renders the parent tree (or this component).
+      const currentScroll = scrollRef.current;
       const scrollRotation = currentScroll * Math.PI * 0.12;
       const scrollScale = 1 + currentScroll * 0.25;
 
@@ -650,8 +654,8 @@ const CombinedBackgroundSpace: React.FC<{ scrollProgress: number }> = ({ scrollP
         const driftX = Math.cos(node.phase + time) * 5;
         const driftY = Math.sin(node.phase * 1.3 + time) * 5;
 
-        let cx = node.baseX - w / 2;
-        let cy = node.baseY - h / 2;
+        const cx = node.baseX - w / 2;
+        const cy = node.baseY - h / 2;
 
         const rx = cx * Math.cos(scrollRotation) - cy * Math.sin(scrollRotation);
         const ry = cx * Math.sin(scrollRotation) + cy * Math.cos(scrollRotation);
@@ -665,7 +669,9 @@ const CombinedBackgroundSpace: React.FC<{ scrollProgress: number }> = ({ scrollP
           const dist = Math.sqrt(dx * dx + dy * dy);
           const maxDist = 240;
 
-          if (dist < maxDist) {
+          // dist > 0 guards the dx/dist normalize against a 0/0 = NaN that would
+          // permanently corrupt this node (matches the particle loop's guard).
+          if (dist > 0 && dist < maxDist) {
             const force = (maxDist - dist) / maxDist;
             const pull = Math.sin(force * Math.PI - Math.PI / 2) * 40;
             targetX -= (dx / dist) * pull;
@@ -761,9 +767,13 @@ const CombinedBackgroundSpace: React.FC<{ scrollProgress: number }> = ({ scrollP
       }
       pCtx.globalAlpha = 1;
 
-      animFrameId = requestAnimationFrame(loop);
+      // Reduced motion: paint a single static frame and never reschedule.
+      if (!reduced) animFrameId = requestAnimationFrame(loop);
     };
 
+    // Size the canvases and seed geometry, then paint. Ordered after loop() is
+    // defined so resize()'s reduced-motion repaint has a function to call.
+    resize();
     loop();
 
     return () => {
@@ -772,12 +782,12 @@ const CombinedBackgroundSpace: React.FC<{ scrollProgress: number }> = ({ scrollP
       document.removeEventListener("mouseleave", handleMouseLeave);
       cancelAnimationFrame(animFrameId);
     };
-  }, [initParticles]); // Cleaned dependency array prevents setup loop recursion on scroll
+  }, [initParticles, reduced, scrollRef]); // scrollRef is a stable ref; reduced re-inits the loop
 
   return (
     <>
-      <canvas ref={particleCanvasRef} className="fixed inset-0 z-0 bg-[#05050a]" />
-      <canvas ref={quantumCanvasRef} className="fixed inset-0 z-[1] pointer-events-none mix-blend-screen" />
+      <canvas ref={particleCanvasRef} aria-hidden="true" className="fixed inset-0 z-0 bg-[#05050a]" />
+      <canvas ref={quantumCanvasRef} aria-hidden="true" className="fixed inset-0 z-[1] pointer-events-none mix-blend-screen" />
     </>
   );
 };
@@ -828,42 +838,85 @@ const GlitchLogo: React.FC = () => {
 // MAIN INTEGRATED TRANSCENDENT INTERFACE
 // =========================================================================
 export default function UltimateCorpExperience() {
-  const [scrollProgress, setScrollProgress] = useState(0);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState("hero");
-  const [hasBooted, setHasBooted] = useState(false);
+  const [coreInView, setCoreInView] = useState(false);
 
   const [currentDivIndex, setCurrentDivIndex] = useState(0);
   const [pulseTrigger, setPulseTrigger] = useState(0);
   const vMouse = useRef({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const coreRef = useRef<HTMLDivElement | null>(null);
+  // Scroll progress drives only the frame-overlay opacity, so it lives in refs
+  // (not state): scrolling updates the DOM directly and never re-renders the tree.
+  const scrollProgressRef = useRef(0);
+  const frameOverlayRef = useRef<HTMLDivElement | null>(null);
+
+  const prefersReduced = useReducedMotion();
+  const reduced = prefersReduced ?? false;
+
+  // The live 3D core mounts only where WebGL actually works and motion is
+  // allowed. SSR/first paint report unsupported, so a static fallback renders
+  // and the real core is adopted right after hydration — no blank frame, no
+  // hydration mismatch.
+  const webglSupported = useWebGLSupported();
+  const coreEnabled = webglSupported && !reduced;
 
   const activeDivision = divisions[currentDivIndex];
 
   useEffect(() => {
-    const timer = setTimeout(() => setHasBooted(true), 1200);
-    return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    const handleScroll = () => {
+    let ticking = false;
+    const compute = () => {
+      ticking = false;
       if (!containerRef.current) return;
       const totalHeight = containerRef.current.scrollHeight - window.innerHeight;
       if (totalHeight <= 0) return;
-      setScrollProgress(Math.min(Math.max(window.scrollY / totalHeight, 0), 1));
+      const p = Math.min(Math.max(window.scrollY / totalHeight, 0), 1);
+      scrollProgressRef.current = p;
+      // Drive the frame-overlay opacity imperatively — no React re-render.
+      if (frameOverlayRef.current) {
+        frameOverlayRef.current.style.opacity = String(0.3 + p * 0.7);
+      }
+    };
+    // Coalesce scroll events to at most one update per frame.
+    const handleScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(compute);
     };
     window.addEventListener("scroll", handleScroll, { passive: true });
+    // Seed from the initial/restored scroll position so the overlay opacity and
+    // background parallax are correct on reload-while-scrolled or hash landings.
+    compute();
     return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  // Pause the 3D core's render loop whenever it is scrolled out of view.
+  useEffect(() => {
+    const el = coreRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setCoreInView(entry.isIntersecting),
+      { rootMargin: "100px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) setActiveSection(entry.target.id);
-        });
+        // Pick the single most-visible section rather than letting the last
+        // entry in the batch win (which could highlight an off-screen section).
+        const visible = entries.filter((e) => e.isIntersecting);
+        if (visible.length === 0) return;
+        const best = visible.reduce((a, b) =>
+          b.intersectionRatio > a.intersectionRatio ? b : a
+        );
+        setActiveSection(best.target.id);
       },
-      { threshold: 0.15, rootMargin: "-10% 0px -30% 0px" }
+      { threshold: [0.15, 0.5, 0.85], rootMargin: "-10% 0px -30% 0px" }
     );
     const elements = document.querySelectorAll("section[id]");
     elements.forEach((el) => observer.observe(el));
@@ -888,47 +941,72 @@ export default function UltimateCorpExperience() {
 
   useEffect(() => {
     const handleGlobalKeys = (e: KeyboardEvent) => {
-      if (e.key === "`" || e.key === "/") {
-        e.preventDefault();
-        setTerminalOpen((prev) => !prev);
-      }
+      // Cmd/Ctrl-K opens the terminal from anywhere, including text fields.
       if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         setTerminalOpen(true);
+        return;
+      }
+      // Never hijack typing: when focus is in an editable element, let the
+      // keystroke through (so "/" and "`" work inside the terminal input).
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === "`" || e.key === "/") {
+        e.preventDefault();
+        setTerminalOpen((prev) => !prev);
       }
     };
     window.addEventListener("keydown", handleGlobalKeys);
     return () => window.removeEventListener("keydown", handleGlobalKeys);
   }, []);
 
+  const navItems = [
+    { label: "ABOUT", id: "about" },
+    { label: "DIVISIONS", id: "divisions" },
+    { label: "SPECTRUM", id: "spectrum" },
+    { label: "CONTACT", id: "contact" },
+  ];
+
+  const scrollToSection = (id: string) => {
+    const target = document.getElementById(id);
+    if (target) window.scrollTo({ top: target.offsetTop - 90, behavior: "smooth" });
+    setMobileMenuOpen(false);
+  };
+
   return (
-    <div ref={containerRef} className="relative min-h-screen bg-[#05050a] text-white overflow-x-hidden selection:bg-[#00e5ff] selection:text-black font-sans">
-      <CombinedBackgroundSpace scrollProgress={scrollProgress} />
+    <MotionConfig reducedMotion="user">
+    <div ref={containerRef} className="relative min-h-dvh bg-[#05050a] text-white overflow-x-hidden selection:bg-[#00e5ff] selection:text-black font-sans">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[100000] focus:px-4 focus:py-2 focus:rounded focus:bg-white focus:text-black focus:font-mono focus:text-xs focus:tracking-[0.2em]"
+      >
+        SKIP TO CONTENT
+      </a>
+      <CombinedBackgroundSpace scrollRef={scrollProgressRef} reduced={reduced} />
       <CustomCursor />
 
-      <div className="fixed inset-0 pointer-events-none z-50 border-[1px] border-white/5 m-4" style={{ opacity: 0.3 + scrollProgress * 0.7 }} />
+      <div ref={frameOverlayRef} className="fixed inset-0 pointer-events-none z-50 border-[1px] border-white/5 m-4" style={{ opacity: 0.3 }} />
       <div className="fixed top-0 left-1/2 -translate-x-1/2 w-[1px] h-full bg-gradient-to-b from-white/0 via-white/5 to-white/0 pointer-events-none z-10" />
 
       {/* GLOBAL NAVIGATION */}
-      <nav className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-8 py-6 border-b border-white/5 bg-[#05050a]/60 backdrop-blur-xl mix-blend-difference">
-        <div onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} className="cursor-pointer group select-none">
+      <nav inert={terminalOpen} className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-6 md:px-8 pb-6 pt-[max(1.5rem,env(safe-area-inset-top))] border-b border-white/5 bg-[#05050a]/60 backdrop-blur-xl mix-blend-difference">
+        <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" className="group select-none text-left">
           <div className="font-mono text-sm tracking-[0.4em] font-black">1337</div>
-          <div className="text-[8px] text-white/40 tracking-[0.2em] uppercase transition-colors group-hover:text-[#00e5ff]">THE CORPORATION</div>
-        </div>
+          <div className="text-[8px] text-white/55 tracking-[0.2em] uppercase transition-colors group-hover:text-[#00e5ff]">THE CORPORATION</div>
+        </button>
 
         <div className="hidden md:flex items-center gap-8 font-mono text-[10px] tracking-[0.25em]">
-          {[
-            { label: "ABOUT", id: "about" },
-            { label: "DIVISIONS", id: "divisions" },
-            { label: "SPECTRUM", id: "spectrum" },
-            { label: "CONTACT", id: "contact" },
-          ].map((item) => (
+          {navItems.map((item) => (
             <button
               key={item.id}
-              onClick={() => {
-                const target = document.getElementById(item.id);
-                if (target) window.scrollTo({ top: target.offsetTop - 90, behavior: "smooth" });
-              }}
+              onClick={() => scrollToSection(item.id)}
               className={`transition-all duration-300 relative py-1 uppercase ${activeSection === item.id ? "text-white font-bold" : "text-white/40 hover:text-white"}`}
             >
               {item.label}
@@ -937,28 +1015,69 @@ export default function UltimateCorpExperience() {
           ))}
         </div>
 
-        <button onClick={() => setTerminalOpen(true)} className="flex items-center gap-2.5 px-5 py-2 rounded-full border border-white/10 hover:border-white/30 bg-white/[0.02] hover:bg-white/10 text-[9px] font-mono tracking-[0.2em] transition-all">
-          <TerminalIcon size={12} className="text-[#00ff88]" /> CMD
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={() => setTerminalOpen(true)} className="flex items-center gap-2.5 px-5 py-2 rounded-full border border-white/10 hover:border-white/30 bg-white/[0.02] hover:bg-white/10 text-[9px] font-mono tracking-[0.2em] transition-all">
+            <TerminalIcon size={12} className="text-[#00ff88]" /> CMD
+          </button>
+          <button
+            onClick={() => setMobileMenuOpen((v) => !v)}
+            aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+            aria-expanded={mobileMenuOpen}
+            className="md:hidden flex items-center justify-center w-9 h-9 rounded-full border border-white/10 text-white"
+          >
+            {mobileMenuOpen ? <X size={16} /> : <Menu size={16} />}
+          </button>
+        </div>
       </nav>
 
+      {/* MOBILE NAVIGATION OVERLAY */}
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <motion.div
+            key="mobile-menu"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            inert={terminalOpen}
+            className="fixed inset-0 z-[35] md:hidden bg-[#05050a]/95 backdrop-blur-xl flex flex-col items-center justify-center gap-8"
+          >
+            {navItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => scrollToSection(item.id)}
+                className={`font-mono text-lg tracking-[0.3em] uppercase transition-colors ${activeSection === item.id ? "text-white" : "text-white/50 hover:text-white"}`}
+              >
+                {item.label}
+              </button>
+            ))}
+            <button
+              onClick={() => { setMobileMenuOpen(false); setTerminalOpen(true); }}
+              className="mt-4 flex items-center gap-2.5 px-6 py-3 rounded-full border border-white/15 text-[11px] font-mono tracking-[0.2em]"
+            >
+              <TerminalIcon size={14} className="text-[#00ff88]" /> OPEN TERMINAL
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* CORE FRAME SUBSYSTEM */}
-      <main className="relative z-20 w-full">
+      <main id="main-content" inert={terminalOpen} className="relative z-20 w-full">
 
         {/* HERO */}
-        <section id="hero" className="min-h-screen w-full flex flex-col items-center justify-center px-6 relative pt-16 bg-black/40">
+        <section id="hero" className="min-h-dvh w-full flex flex-col items-center justify-center px-6 relative pt-16 bg-black/40">
+          <h1 className="sr-only">1337 Corp — the quiet architects of what comes next.</h1>
           <div className="text-center space-y-8 z-10">
-            <div><GlitchLogo /></div>
+            <div aria-hidden="true"><GlitchLogo /></div>
             <p className="max-w-xl mx-auto font-mono text-xs md:text-sm text-white/50 tracking-wide leading-relaxed">We are the quiet architects of what comes <span className="text-[#ffaa00]">next.</span></p>
           </div>
-          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-[9px] font-mono tracking-[0.4em] text-white/30 animate-pulse">
+          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-[9px] font-mono tracking-[0.4em] text-white/50 animate-pulse">
             DISPLACE DOWN
             <div className="h-8 w-[1px] bg-gradient-to-b from-white/30 to-transparent mt-1" />
           </div>
         </section>
 
         {/* CHAPTER I: ABOUT */}
-        <section id="about" className="min-h-screen w-full flex items-center justify-center px-6 py-24 relative bg-black/40 border-b border-white/5">
+        <section id="about" className="min-h-dvh w-full flex items-center justify-center px-6 py-24 relative bg-black/40 border-b border-white/5">
           <div className="max-w-4xl w-full grid md:grid-cols-12 gap-12 items-center relative">
             <div className="md:col-span-5 space-y-4">
               <span className="font-mono text-[10px] tracking-[0.4em] text-[#00e5ff] block uppercase">CHAPTER I // COVENANT</span>
@@ -968,7 +1087,7 @@ export default function UltimateCorpExperience() {
             </div>
             <div className="md:col-span-7 space-y-6 font-mono text-xs md:text-sm text-white/50 leading-relaxed">
               <p className="text-white/80 text-base font-medium font-sans border-l-2 border-[#ff2e63] pl-4">
-                "In the beginning there was code. And the code was with the elite, and the code <span className="text-[#ff2e63]">was</span> elite."
+                &ldquo;In the beginning there was code. And the code was with the elite, and the code <span className="text-[#ff2e63]">was</span>{" "}elite.&rdquo;
               </p>
               <p>Not a company. A convergence. A singularity that looked at the limits of what was possible and chose, instead, to rewrite the rules.</p>
               <p className="text-white/90 font-medium tracking-[-0.2px]">
@@ -979,7 +1098,7 @@ export default function UltimateCorpExperience() {
         </section>
 
         {/* CHAPTER II: ARCHITECTURE (THE VEIL INTEGRATION) */}
-        <section id="divisions" className="min-h-screen w-full flex items-center justify-center px-6 py-24 relative bg-black/40 border-y border-white/5 overflow-hidden">
+        <section id="divisions" className="min-h-dvh w-full flex items-center justify-center px-6 py-24 relative bg-black/40 border-y border-white/5 overflow-hidden">
           <div className="max-w-7xl w-full grid lg:grid-cols-12 gap-12 items-center relative z-10">
 
             <div className="lg:col-span-4 space-y-8">
@@ -1008,7 +1127,7 @@ export default function UltimateCorpExperience() {
                         </div>
                         <div>
                           <div className="text-white text-sm font-bold tracking-wider">{div.name}</div>
-                          <div className="text-[9px] text-white/40 tracking-widest uppercase mt-0.5">{div.codename}</div>
+                          <div className="text-[9px] text-white/55 tracking-widest uppercase mt-0.5">{div.codename}</div>
                         </div>
                       </div>
                       <ChevronRight size={14} className={`transition-transform duration-300 ${isSelected ? "rotate-90 text-white" : "text-white/20"}`} />
@@ -1019,19 +1138,28 @@ export default function UltimateCorpExperience() {
             </div>
 
             <div
+              ref={coreRef}
               className="lg:col-span-4 h-[350px] md:h-[450px] w-full relative cursor-crosshair group rounded-3xl"
               onMouseMove={handleVeilMouseMove}
               onClick={triggerCorePulseDirectly}
+              aria-hidden="true"
             >
               <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/[0.01] to-transparent rounded-3xl pointer-events-none border border-white/5" />
-              <Canvas camera={{ position: [0, 0, 7.5], fov: 45 }} gl={{ alpha: true }}>
-                <ambientLight intensity={0.15} />
-                <pointLight position={[5, 5, 5]} intensity={0.5} />
-                <TheVeilCore mouse={vMouse} pulseTrigger={pulseTrigger} activeColor={activeDivision.color} />
-              </Canvas>
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 font-mono text-[8px] text-white/30 tracking-[3px] uppercase pointer-events-none animate-pulse">
-                Click Core to Echo Pattern
-              </div>
+              {coreEnabled ? (
+                <VeilCanvas
+                  mouse={vMouse}
+                  pulseTrigger={pulseTrigger}
+                  activeColor={activeDivision.color}
+                  frameloop={coreInView ? "always" : "never"}
+                />
+              ) : (
+                <CoreFallback color={activeDivision.color} />
+              )}
+              {coreEnabled && (
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 font-mono text-[8px] text-white/30 tracking-[3px] uppercase pointer-events-none animate-pulse">
+                  Click Core to Echo Pattern
+                </div>
+              )}
             </div>
 
             <div className="lg:col-span-4 space-y-6">
@@ -1049,7 +1177,7 @@ export default function UltimateCorpExperience() {
                   </div>
 
                   <h3 className="font-serif text-xl md:text-2xl italic text-white/90 leading-snug border-l-2 pl-4" style={{ borderColor: activeDivision.color }}>
-                    "{activeDivision.tagline}"
+                    &ldquo;{activeDivision.tagline}&rdquo;
                   </h3>
 
                   <p className="font-mono text-xs text-white/60 leading-relaxed bg-white/[0.01] border border-white/5 p-5 rounded-xl">
@@ -1067,10 +1195,10 @@ export default function UltimateCorpExperience() {
         </section>
 
         {/* CHAPTER III: SPECTRUM */}
-        <section id="spectrum" className="min-h-screen w-full flex items-center justify-center px-6 py-24 relative bg-black/40 border-b border-white/5">
+        <section id="spectrum" className="min-h-dvh w-full flex items-center justify-center px-6 py-24 relative bg-black/40 border-b border-white/5">
           <div className="max-w-6xl w-full space-y-16">
             <div className="text-center space-y-3">
-              <span className="font-mono text-[10px] tracking-[0.4em] text-[#ff00aa] block uppercase">CHAPTER III // THREE-EYED</span>
+              <span className="font-mono text-[10px] tracking-[0.4em] text-[#8b7cff] block uppercase">CHAPTER III // THREE-EYED</span>
               <h2 className="text-4xl md:text-6xl font-light tracking-tight font-sans">The Vision.</h2>
             </div>
             <div className="grid md:grid-cols-3 gap-6">
@@ -1090,10 +1218,10 @@ export default function UltimateCorpExperience() {
         </section>
 
         {/* CHAPTER IV: CONTACT */}
-        <section id="contact" className="min-h-screen w-full flex items-center justify-center px-6 py-24 border-t border-white/5 relative bg-gradient-to-b from-black/40 to-black/80">
+        <section id="contact" className="min-h-dvh w-full flex items-center justify-center px-6 py-24 border-t border-white/5 relative bg-gradient-to-b from-black/40 to-black/80">
           <div className="max-w-3xl w-full text-center space-y-8 relative">
             <div className="space-y-2">
-              <span className="font-mono text-[10px] tracking-[0.5em] text-[#c5a26f] block uppercase">CHAPTER IV</span>
+              <span className="font-mono text-[10px] tracking-[0.5em] text-[#c5a26f] block uppercase">CHAPTER IV // TRANSMISSION</span>
               <h2 className="text-5xl md:text-8xl font-black tracking-tight font-sans">THE SIGNAL.</h2>
             </div>
             <p className="font-mono text-xs md:text-sm text-white/50 max-w-xl mx-auto leading-relaxed">For serious inquiries, aligned collaborations, or opportunities that fit the work, use the terminal.</p>
@@ -1106,7 +1234,7 @@ export default function UltimateCorpExperience() {
         </section>
       </main>
 
-      <footer className="relative z-30 border-t border-white/5 bg-[#030307]/80 py-8 text-center font-mono text-[9px] tracking-[0.2em] text-white/30">
+      <footer inert={terminalOpen} className="relative z-30 border-t border-white/5 bg-[#030307]/80 py-8 text-center font-mono text-[9px] tracking-[0.2em] text-white/50">
         <div>2026 • 1337</div>
       </footer>
 
@@ -1115,5 +1243,6 @@ export default function UltimateCorpExperience() {
         onClose={() => setTerminalOpen(false)}
       />
     </div>
+    </MotionConfig>
   );
 }
