@@ -975,7 +975,6 @@ export default function UltimateCorpExperience() {
                 "In the beginning there was code. And the code was with the elite, and the code <span className="text-[#ff2e63]">was</span> elite."
               </p>
               <p>Not a company. A convergence. A singularity that looked at the limits of what was possible and chose, instead, to rewrite the rules.</p>
-              <p>We do not innovate. We anticipate the fracture points of reality and suture them before anyone else notices the seam.</p>
               <p className="text-white/90 font-medium tracking-[-0.2px]">
                 We operate where the difference between order and chaos is still something that can be negotiated.
               </p>
