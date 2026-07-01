@@ -66,50 +66,50 @@ interface TerminalLine {
 const divisions: Division[] = [
   {
     id: 1,
-    name: "KAIROS",
-    codename: "STRATEGIC DECISION SYSTEMS",
+    name: "SOFTWARE",
+    codename: "PRODUCTS & SYSTEMS",
     icon: <Zap className="w-4 h-4" />,
-    tagline: "Build the decision frameworks used when the cost of being wrong is catastrophic.",
-    description: "Long-horizon modeling and strategic architecture. We design systems that remain coherent under extreme uncertainty and multiple conflicting futures.",
-    accessLevel: "OMEGA-7",
-    lore: "KAIROS develops decision systems for environments where conventional forecasting and planning break down. Our work focuses on maintaining clarity when multiple high-stakes outcomes remain plausible for extended periods.",
-    metric: "High-stakes scenario modeling • Multi-decade strategic vectors",
+    tagline: "Build practical software systems with a bias toward speed, clarity, and control.",
+    description: "Internal tools, public products, automation, and technical infrastructure designed to reduce friction and create leverage.",
+    accessLevel: "PRIMARY OPERATING AREA",
+    lore: "1337 Corp. develops software for real operational use: tools that make work faster, systems that make decisions cleaner, and interfaces that make complex processes easier to manage.",
+    metric: "Full-stack development • Automation • Internal tools • Product infrastructure",
     color: "#ffaa00"
   },
   {
     id: 2,
-    name: "LUMINA",
-    codename: "ADVANCED COMPUTE PLATFORMS",
+    name: "CAPITAL",
+    codename: "TRADING & INVESTMENT",
     icon: <Star className="w-4 h-4" />,
-    tagline: "Develop the next generation of compute infrastructure beyond silicon limits.",
-    description: "Photonic and optical computing systems. We build architectures designed for problems that exceed the fundamental constraints of conventional electronics.",
-    accessLevel: "SIGMA-9",
-    lore: "LUMINA focuses on next-generation compute substrates, with emphasis on photonic and hybrid systems capable of addressing computational challenges that current hardware cannot efficiently solve.",
-    metric: "Frontier compute deployment • Infrastructure-level systems",
+    tagline: "Deploy company capital with discipline, patience, and a research-driven process.",
+    description: "Proprietary trading and investing using internal capital, supported by research, tooling, and structured risk management.",
+    accessLevel: "INTERNAL CAPITAL OPERATIONS",
+    lore: "Our capital work is focused on independent research, thoughtful execution, and protecting downside before pursuing upside. We are not a fund, advisor, or promoter; we operate with our own capital and our own standards.",
+    metric: "Market research • Risk management • Proprietary trading • Long-term investing",
     color: "#00e5ff"
   },
   {
     id: 3,
-    name: "ABYSS",
-    codename: "SOVEREIGN DATA PROTECTION",
+    name: "RESEARCH",
+    codename: "TECHNICAL EXPLORATION",
     icon: <Shield className="w-4 h-4" />,
-    tagline: "Make certain information permanently unreachable — even to future computational advances.",
-    description: "Post-quantum cryptography and information containment. We design the outer layer of protection for the most sensitive data and systems.",
-    accessLevel: "VOID-13",
-    lore: "ABYSS builds cryptographic and containment systems where data can be protected or rendered permanently inaccessible against both current and anticipated future threats, including large-scale quantum computing.",
-    metric: "Long-horizon information protection • Post-quantum resilience",
+    tagline: "Study ideas early, test them carefully, and turn useful findings into working systems.",
+    description: "Focused research across software, markets, automation, infrastructure, and emerging technical opportunities.",
+    accessLevel: "EXPLORATORY WORK",
+    lore: "1337 Corp. maintains a research function for evaluating new technologies, market structures, and product ideas before they become public projects. The goal is not hype. The goal is better judgment.",
+    metric: "Technical research • Market analysis • Prototypes • Experimental systems",
     color: "#8b7cff"
   },
   {
     id: 4,
-    name: "EIDOLON",
-    codename: "SYNTHETIC & AUTONOMOUS SYSTEMS",
+    name: "VENTURES",
+    codename: "INCUBATION & COMPANY BUILDING",
     icon: <Eye className="w-4 h-4" />,
-    tagline: "Design and govern high-fidelity autonomous entities at scale.",
-    description: "Synthetic agent infrastructure and persistent digital identity systems. We build reliable autonomous systems that operate over long time horizons.",
-    accessLevel: "ECHO-∞",
-    lore: "EIDOLON develops the infrastructure for creating, managing, and governing synthetic and autonomous entities that must maintain coherence and reliability across extended operations and complex environments.",
-    metric: "Persistent entity infrastructure • High-coherence autonomous systems",
+    tagline: "Develop new projects from early concept to durable operating businesses.",
+    description: "Venture incubation, product strategy, early-stage company formation, and selective collaboration with aligned operators.",
+    accessLevel: "SELECTIVE INCUBATION",
+    lore: "Some ideas become tools. Some become products. Some become companies. 1337 Corp. creates room for promising projects to be tested, refined, and built with discipline before they are introduced publicly.",
+    metric: "Venture incubation • Product strategy • Early-stage operations • Strategic partnerships",
     color: "#ff2e63"
   }
 ];
@@ -120,21 +120,21 @@ const operatives: Operative[] = [
     callsign: "Z. THE WEAVER",
     role: "Architect of Branching Timelines",
     quote: "I have seen every version of you. Most of them are disappointing.",
-    access: "LEVEL 1337"
+    access: "01"
   },
   {
     id: 2,
     callsign: "K. THE SILENT",
     role: "Keeper of the Final Key",
     quote: "The lock was never the problem. The question was whether anyone should ever open it.",
-    access: "LEVEL 1337"
+    access: "02"
   },
   {
     id: 3,
     callsign: "M. THE MIRROR",
     role: "Curator of Synthetic Souls",
     quote: "You are already one of my creations. You just haven't realized it yet.",
-    access: "LEVEL 1337"
+    access: "03"
   }
 ];
 
@@ -258,7 +258,7 @@ function TheVeilCore({
 }
 
 // =========================================================================
-// COMPONENT: HIGH-UX TERMINAL EXPERIENCES (ELEVATED SYNAPSE SUBSYSTEM)
+// COMPONENT: TERMINAL CONTACT MODAL
 // =========================================================================
 interface TerminalModalProps {
   isOpen: boolean;
@@ -268,8 +268,8 @@ interface TerminalModalProps {
 const TerminalModal: React.FC<TerminalModalProps> = ({ isOpen, onClose }) => {
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<TerminalLine[]>([
-    { id: "h1", text: "1337 CORE — SECURE INTERFACE", type: "header" },
-    { id: "h2", text: "Type 'contact' to decrypt the secure communications vector.", type: "system" },
+    { id: "h1", text: "1337 CONTACT — INTERFACE", type: "header" },
+    { id: "h2", text: "Type 'contact' to show the primary email.", type: "system" },
   ]);
   const [cmdStack, setCmdStack] = useState<string[]>([]);
   const [stackIndex, setStackIndex] = useState(-1);
@@ -322,16 +322,16 @@ const TerminalModal: React.FC<TerminalModalProps> = ({ isOpen, onClose }) => {
         break;
       case "help":
         addLines([
-          { text: "AVAILABLE OPERATIONS:", type: "header" },
-          { text: "  contact      — Reveal primary secure contact vector" },
-          { text: "  clear        — Clear session buffer screen" },
-          { text: "  exit         — Terminate core terminal session" }
+          { text: "AVAILABLE COMMANDS:", type: "header" },
+          { text: "  contact      — Show primary email" },
+          { text: "  clear        — Clear session" },
+          { text: "  exit         — Close terminal" }
         ]);
         break;
       case "contact":
         if (!showContact) {
           setShowContact(true);
-          addLines([{ text: "Initiating secure vector decryption...", type: "system" }]);
+          addLines([{ text: "Opening contact channel...", type: "system" }]);
           
           let i = 0;
           const interval = setInterval(() => {
@@ -346,7 +346,7 @@ const TerminalModal: React.FC<TerminalModalProps> = ({ isOpen, onClose }) => {
             }
           }, 55);
         } else {
-          addLines([{ text: "Secure channel already established.", type: "success" }]);
+          addLines([{ text: "Contact already displayed.", type: "success" }]);
         }
         break;
       default:
@@ -428,7 +428,7 @@ const TerminalModal: React.FC<TerminalModalProps> = ({ isOpen, onClose }) => {
 
               {showContact && (
                 <div className="mt-4 p-4 border border-white/5 bg-white/[0.01] rounded-lg">
-                  <div className="text-white/30 text-[9px] tracking-widest mb-1">SECURE CONTACT VECTOR</div>
+                  <div className="text-white/30 text-[9px] tracking-widest mb-1">PRIMARY CONTACT</div>
                   <div className="text-lg font-bold tracking-wider text-white select-all">{decryptedEmail}</div>
                 </div>
               )}
@@ -974,7 +974,7 @@ export default function UltimateCorpExperience() {
               <p className="text-white/80 text-base font-medium font-sans border-l-2 border-[#ff2e63] pl-4">
                 "In the beginning there was code. And the code was with the elite, and the code <span className="text-[#ff2e63]">was</span> elite."
               </p>
-              <p>We are 1337 Corp. Not a company. A convergence. A singularity that looked at the limits of what was possible and chose, instead, to rewrite the rules.</p>
+              <p>Not a company. A convergence. A singularity that looked at the limits of what was possible and chose, instead, to rewrite the rules.</p>
               <p>We do not innovate. We anticipate the fracture points of reality and suture them before anyone else notices the seam.</p>
               <p className="text-white/90 font-medium tracking-[-0.2px]">
                 We operate where the difference between order and chaos is still something that can be negotiated.
@@ -989,8 +989,8 @@ export default function UltimateCorpExperience() {
             
             <div className="lg:col-span-4 space-y-8">
               <div>
-                <span className="font-mono text-[10px] tracking-[0.4em] text-[#ff2e63] block uppercase mb-2">CHAPTER II // ARCHITECTURE</span>
-                <h2 className="text-4xl md:text-5xl font-light tracking-tighter text-white font-sans">Cells of Intent.</h2>
+                <span className="font-mono text-[10px] tracking-[0.4em] text-[#ff2e63] block uppercase mb-2">CHAPTER II // AN ARCHITECTURE</span>
+                <h2 className="text-4xl md:text-5xl font-light tracking-tighter text-white font-sans">Built for infinite replication.</h2>
               </div>
 
               <div className="space-y-3">
@@ -1051,7 +1051,7 @@ export default function UltimateCorpExperience() {
                   className="space-y-6"
                 >
                   <div className="inline-block px-3 py-1 rounded bg-white/5 border border-white/10 font-mono text-[9px] tracking-widest font-bold" style={{ color: activeDivision.color }}>
-                    CONTEXT CLEARANCE: {activeDivision.accessLevel}
+                    {activeDivision.accessLevel}
                   </div>
                   
                   <h3 className="font-serif text-xl md:text-2xl italic text-white/90 leading-snug border-l-2 pl-4" style={{ borderColor: activeDivision.color }}>
@@ -1063,7 +1063,6 @@ export default function UltimateCorpExperience() {
                   </p>
 
                   <div className="pt-4 border-t border-white/5 font-mono text-[10px]">
-                    <span className="text-white/30 block mb-1 uppercase">// DYNAMIC CELL TELEMETRY</span>
                     <span className="text-white/80">{activeDivision.metric}</span>
                   </div>
                 </motion.div>
@@ -1104,21 +1103,18 @@ export default function UltimateCorpExperience() {
               <span className="font-mono text-[10px] tracking-[0.5em] text-[#c5a26f] block uppercase">CHAPTER IV // EPILOGUE</span>
               <h2 className="text-5xl md:text-8xl font-black tracking-tight font-sans">THE SIGNAL.</h2>
             </div>
-            <p className="font-mono text-xs md:text-sm text-white/50 max-w-xl mx-auto leading-relaxed">If you have read this far, the resonance has already begun.</p>
+            <p className="font-mono text-xs md:text-sm text-white/50 max-w-xl mx-auto leading-relaxed">If you have read this far, it has already begun.</p>
             <div className="pt-4 space-y-4">
               <button onClick={() => setTerminalOpen(true)} className="font-mono text-[11px] tracking-[0.3em] border border-white/20 hover:border-white bg-transparent hover:bg-white hover:text-black px-8 py-4 transition-all duration-500 flex items-center gap-3 mx-auto">
-                <Command size={14} /> ENGAGE SECURE INPUT
+                <Command size={14} /> OPEN CONTACT
               </button>
             </div>
           </div>
         </section>
       </main>
 
-      <footer className="relative z-30 border-t border-white/5 bg-[#030307]/80 py-8 text-center font-mono text-[9px] tracking-[0.2em] text-white/30 space-y-2">
+      <footer className="relative z-30 border-t border-white/5 bg-[#030307]/80 py-8 text-center font-mono text-[9px] tracking-[0.2em] text-white/30">
         <div>2026 • 1337</div>
-        <div className="text-white/15 text-[8px]">
-          THE CORPORATION
-        </div>
       </footer>
 
       <TerminalModal 
