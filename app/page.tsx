@@ -5,8 +5,8 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { Stars } from "@react-three/drei";
 import * as THREE from "three";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  Terminal as TerminalIcon, Shield, Zap, X, Command, Star, Eye, ChevronRight, Cpu 
+import {
+  Terminal as TerminalIcon, Shield, Zap, X, Command, Star, Eye, ChevronRight, Cpu
 } from "lucide-react";
 
 // =========================================================================
@@ -51,7 +51,6 @@ interface Operative {
   callsign: string;
   role: string;
   quote: string;
-  access: string;
 }
 
 interface TerminalLine {
@@ -117,36 +116,33 @@ const divisions: Division[] = [
 const operatives: Operative[] = [
   {
     id: 1,
-    callsign: "Z. THE WEAVER",
-    role: "Architect of Branching Timelines",
-    quote: "I have seen every version of you. Most of them are disappointing.",
-    access: "01"
+    callsign: "SIMPLE",
+    role: "Decisions over noise",
+    quote: "We strip problems down until the next honest move is obvious."
   },
   {
     id: 2,
-    callsign: "K. THE SILENT",
-    role: "Keeper of the Final Key",
-    quote: "The lock was never the problem. The question was whether anyone should ever open it.",
-    access: "02"
+    callsign: "DISCIPLINED",
+    role: "Risk before upside",
+    quote: "We protect downside, move deliberately, and let compounding do what force cannot."
   },
   {
     id: 3,
-    callsign: "M. THE MIRROR",
-    role: "Curator of Synthetic Souls",
-    quote: "You are already one of my creations. You just haven't realized it yet.",
-    access: "03"
+    callsign: "AWARE",
+    role: "Systems that scale judgment",
+    quote: "When a tool can reduce friction, improve judgment, or compound effort, we build it."
   }
 ];
 
 // =========================================================================
 // THE VEIL CRUCIBLE: 3D THREE.JS QUANTUM INTEGRATION
 // =========================================================================
-function TheVeilCore({ 
-  mouse, 
-  pulseTrigger, 
-  activeColor 
-}: { 
-  mouse: React.MutableRefObject<{ x: number; y: number }>; 
+function TheVeilCore({
+  mouse,
+  pulseTrigger,
+  activeColor
+}: {
+  mouse: React.MutableRefObject<{ x: number; y: number }>;
   pulseTrigger: number;
   activeColor: string;
 }) {
@@ -158,7 +154,7 @@ function TheVeilCore({
   const particleCount = 2400;
   const currentCoreColor = useRef(new THREE.Color("#c5a26f"));
   const targetCoreColor = useMemo(() => new THREE.Color(activeColor), [activeColor]);
-  
+
   const { homePositions } = useMemo(() => {
     const homes = new Float32Array(particleCount * 3);
     for (let i = 0; i < particleCount; i++) {
@@ -166,7 +162,7 @@ function TheVeilCore({
       const radiusBase = 2.4 + (i % 4) * 0.5 + (Math.random() - 0.5) * 0.3;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1) * 0.8;
-      
+
       homes[i3] = radiusBase * Math.sin(phi) * Math.cos(theta);
       homes[i3 + 1] = radiusBase * Math.sin(phi) * Math.sin(theta) * 0.8;
       homes[i3 + 2] = radiusBase * Math.cos(phi);
@@ -184,10 +180,10 @@ function TheVeilCore({
       const posArr = (particlesRef.current.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
       for (let i = 0; i < particleCount; i++) {
         const i3 = i * 3;
-        const len = Math.sqrt(posArr[i3]**2 + posArr[i3+1]**2 + posArr[i3+2]**2) || 1;
+        const len = Math.sqrt(posArr[i3] ** 2 + posArr[i3 + 1] ** 2 + posArr[i3 + 2] ** 2) || 1;
         velocities[i3] += (posArr[i3] / len) * 0.9;
-        velocities[i3 + 1] += (posArr[i3+1] / len) * 0.9;
-        velocities[i3 + 2] += (posArr[i3+2] / len) * 0.9;
+        velocities[i3 + 1] += (posArr[i3 + 1] / len) * 0.9;
+        velocities[i3 + 2] += (posArr[i3 + 2] / len) * 0.9;
       }
     }
   }, [pulseTrigger, particleCount, velocities]);
@@ -332,10 +328,10 @@ const TerminalModal: React.FC<TerminalModalProps> = ({ isOpen, onClose }) => {
         if (!showContact) {
           setShowContact(true);
           addLines([{ text: "Opening contact channel...", type: "system" }]);
-          
+
           let i = 0;
           const interval = setInterval(() => {
-            const scrambled = CONTACT_EMAIL.split("").map((ch, idx) => 
+            const scrambled = CONTACT_EMAIL.split("").map((ch, idx) =>
               idx < Math.floor((i / 10) * CONTACT_EMAIL.length) ? ch : String.fromCharCode(33 + Math.floor(Math.random() * 94))
             ).join("");
             setDecryptedEmail(scrambled);
@@ -401,9 +397,9 @@ const TerminalModal: React.FC<TerminalModalProps> = ({ isOpen, onClose }) => {
     <AnimatePresence>
       {isOpen && (
         <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/85 p-4 backdrop-blur-md">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.98, y: 10 }} 
-            animate={{ opacity: 1, scale: 1, y: 0 }} 
+          <motion.div
+            initial={{ opacity: 0, scale: 0.98, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.98, y: 10 }}
             className="w-full max-w-4xl bg-[#030306] border border-white/10 rounded-xl overflow-hidden shadow-2xl"
           >
@@ -438,14 +434,14 @@ const TerminalModal: React.FC<TerminalModalProps> = ({ isOpen, onClose }) => {
             <div className="flex items-center border-t border-white/5 bg-black/40 px-5 py-3.5 font-mono text-[11px] relative">
               <span className="text-[#00ff9f] mr-2.5 font-bold">guest@1337:~$</span>
               <div className="flex-1 relative flex items-center">
-                <input 
-                  ref={inputRef} 
-                  value={input} 
-                  onChange={e => setInput(e.target.value)} 
-                  onKeyDown={handleKeyDown} 
-                  className="w-full bg-transparent outline-none text-white z-10" 
+                <input
+                  ref={inputRef}
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="w-full bg-transparent outline-none text-white z-10"
                   placeholder="type command..."
-                  autoComplete="off" 
+                  autoComplete="off"
                 />
                 {input && autocompleteSuggestion && (
                   <span className="absolute left-0 text-white/20 pointer-events-none">
@@ -481,8 +477,8 @@ const CustomCursor: React.FC = () => {
     const handleMouseOver = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       setIsHovering(
-        target.tagName === "BUTTON" || 
-        target.tagName === "A" || 
+        target.tagName === "BUTTON" ||
+        target.tagName === "A" ||
         !!target.closest("[data-interactive]") ||
         target.closest(".operative-card") !== null
       );
@@ -643,7 +639,7 @@ const CombinedBackgroundSpace: React.FC<{ scrollProgress: number }> = ({ scrollP
       mouse.y += (mouse.targetY - mouse.y) * 0.1;
 
       qCtx.clearRect(0, 0, w, h);
-      
+
       // Read cleanly from the mutable ref without re-triggering the parent thread setup
       const currentScroll = scrollProgressRef.current;
       const scrollRotation = currentScroll * Math.PI * 0.12;
@@ -798,18 +794,18 @@ const GlitchLogo: React.FC = () => {
   };
 
   return (
-    <div 
+    <div
       className="relative cursor-pointer select-none group inline-block text-center"
       onMouseEnter={triggerGlitch}
       onClick={triggerGlitch}
     >
       <div className="relative inline-block mx-auto">
-        <div 
+        <div
           className={`font-mono text-[96px] md:text-[140px] leading-[0.8] tracking-[-5px] font-black text-white transition-all duration-75 ${isGlitching ? "opacity-90" : ""}`}
-          style={{ 
+          style={{
             fontFeatureSettings: '"tnum"',
-            textShadow: isGlitching 
-              ? "3px 0 #ff2e63, -3px 0 #00e5ff" 
+            textShadow: isGlitching
+              ? "3px 0 #ff2e63, -3px 0 #00e5ff"
               : "0 0 50px rgba(0, 229, 255, 0.12)"
           }}
         >
@@ -836,7 +832,7 @@ export default function UltimateCorpExperience() {
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [activeSection, setActiveSection] = useState("hero");
   const [hasBooted, setHasBooted] = useState(false);
-  
+
   const [currentDivIndex, setCurrentDivIndex] = useState(0);
   const [pulseTrigger, setPulseTrigger] = useState(0);
   const vMouse = useRef({ x: 0, y: 0 });
@@ -922,10 +918,10 @@ export default function UltimateCorpExperience() {
 
         <div className="hidden md:flex items-center gap-8 font-mono text-[10px] tracking-[0.25em]">
           {[
-            { label: "MANIFESTO", id: "manifesto" },
+            { label: "ABOUT", id: "about" },
             { label: "DIVISIONS", id: "divisions" },
-            { label: "COLLECTIVE", id: "collective" },
-            { label: "SIGNAL", id: "signal" },
+            { label: "SPECTRUM", id: "spectrum" },
+            { label: "CONTACT", id: "contact" },
           ].map((item) => (
             <button
               key={item.id}
@@ -948,7 +944,7 @@ export default function UltimateCorpExperience() {
 
       {/* CORE FRAME SUBSYSTEM */}
       <main className="relative z-20 w-full">
-        
+
         {/* HERO */}
         <section id="hero" className="min-h-screen w-full flex flex-col items-center justify-center px-6 relative pt-16 bg-black/40">
           <div className="text-center space-y-8 z-10">
@@ -961,8 +957,8 @@ export default function UltimateCorpExperience() {
           </div>
         </section>
 
-        {/* CHAPTER I: MANIFESTO */}
-        <section id="manifesto" className="min-h-screen w-full flex items-center justify-center px-6 py-24 relative bg-black/40 border-b border-white/5">
+        {/* CHAPTER I: ABOUT */}
+        <section id="about" className="min-h-screen w-full flex items-center justify-center px-6 py-24 relative bg-black/40 border-b border-white/5">
           <div className="max-w-4xl w-full grid md:grid-cols-12 gap-12 items-center relative">
             <div className="md:col-span-5 space-y-4">
               <span className="font-mono text-[10px] tracking-[0.4em] text-[#00e5ff] block uppercase">CHAPTER I // COVENANT</span>
@@ -985,11 +981,11 @@ export default function UltimateCorpExperience() {
         {/* CHAPTER II: ARCHITECTURE (THE VEIL INTEGRATION) */}
         <section id="divisions" className="min-h-screen w-full flex items-center justify-center px-6 py-24 relative bg-black/40 border-y border-white/5 overflow-hidden">
           <div className="max-w-7xl w-full grid lg:grid-cols-12 gap-12 items-center relative z-10">
-            
+
             <div className="lg:col-span-4 space-y-8">
               <div>
                 <span className="font-mono text-[10px] tracking-[0.4em] text-[#ff2e63] block uppercase mb-2">CHAPTER II // AN ARCHITECTURE</span>
-                <h2 className="text-4xl md:text-5xl font-light tracking-tighter text-white font-sans">Built for infinite replication.</h2>
+                <h2 className="text-4xl md:text-5xl font-light tracking-tighter text-white font-sans">Force-multiplying.</h2>
               </div>
 
               <div className="space-y-3">
@@ -1000,11 +996,10 @@ export default function UltimateCorpExperience() {
                       key={div.id}
                       data-interactive
                       onClick={() => cycleDivision(index)}
-                      className={`w-full text-left p-5 rounded-xl border font-mono transition-all duration-300 flex items-center justify-between ${
-                        isSelected 
-                          ? "bg-white/[0.03] border-white/20 shadow-xl" 
-                          : "bg-transparent border-white/5 opacity-40 hover:opacity-80"
-                      }`}
+                      className={`w-full text-left p-5 rounded-xl border font-mono transition-all duration-300 flex items-center justify-between ${isSelected
+                        ? "bg-white/[0.03] border-white/20 shadow-xl"
+                        : "bg-transparent border-white/5 opacity-40 hover:opacity-80"
+                        }`}
                       style={{ borderColor: isSelected ? div.color : undefined }}
                     >
                       <div className="flex items-center gap-4">
@@ -1023,7 +1018,7 @@ export default function UltimateCorpExperience() {
               </div>
             </div>
 
-            <div 
+            <div
               className="lg:col-span-4 h-[350px] md:h-[450px] w-full relative cursor-crosshair group rounded-3xl"
               onMouseMove={handleVeilMouseMove}
               onClick={triggerCorePulseDirectly}
@@ -1052,11 +1047,11 @@ export default function UltimateCorpExperience() {
                   <div className="inline-block px-3 py-1 rounded bg-white/5 border border-white/10 font-mono text-[9px] tracking-widest font-bold" style={{ color: activeDivision.color }}>
                     {activeDivision.accessLevel}
                   </div>
-                  
+
                   <h3 className="font-serif text-xl md:text-2xl italic text-white/90 leading-snug border-l-2 pl-4" style={{ borderColor: activeDivision.color }}>
                     "{activeDivision.tagline}"
                   </h3>
-                  
+
                   <p className="font-mono text-xs text-white/60 leading-relaxed bg-white/[0.01] border border-white/5 p-5 rounded-xl">
                     {activeDivision.lore}
                   </p>
@@ -1071,18 +1066,17 @@ export default function UltimateCorpExperience() {
           </div>
         </section>
 
-        {/* CHAPTER III: COLLECTIVE */}
-        <section id="collective" className="min-h-screen w-full flex items-center justify-center px-6 py-24 relative bg-black/40 border-b border-white/5">
+        {/* CHAPTER III: SPECTRUM */}
+        <section id="spectrum" className="min-h-screen w-full flex items-center justify-center px-6 py-24 relative bg-black/40 border-b border-white/5">
           <div className="max-w-6xl w-full space-y-16">
             <div className="text-center space-y-3">
-              <span className="font-mono text-[10px] tracking-[0.4em] text-[#ff00aa] block uppercase">CHAPTER III // INDUCTION PHASES</span>
+              <span className="font-mono text-[10px] tracking-[0.4em] text-[#ff00aa] block uppercase">CHAPTER III // THREE-EYED</span>
               <h2 className="text-4xl md:text-6xl font-light tracking-tight font-sans">The Vision.</h2>
             </div>
             <div className="grid md:grid-cols-3 gap-6">
               {operatives.map((op) => (
                 <div key={op.id} className="operative-card border border-white/5 bg-[#07070c]/40 backdrop-blur-sm p-8 rounded-2xl flex flex-col justify-between space-y-8 hover:border-white/10 transition-all duration-300">
                   <div className="space-y-4">
-                    <span className="font-mono text-[9px] tracking-widest bg-white/5 border border-white/5 px-2 py-0.5 rounded text-white/50 inline-block">{op.access}</span>
                     <div>
                       <h4 className="text-xl font-bold font-sans tracking-tight text-white">{op.callsign}</h4>
                       <p className="text-xs font-mono text-white/40 mt-0.5">{op.role}</p>
@@ -1095,11 +1089,11 @@ export default function UltimateCorpExperience() {
           </div>
         </section>
 
-        {/* CHAPTER IV: SIGNAL */}
-        <section id="signal" className="min-h-screen w-full flex items-center justify-center px-6 py-24 border-t border-white/5 relative bg-gradient-to-b from-black/40 to-black/80">
+        {/* CHAPTER IV: CONTACT */}
+        <section id="contact" className="min-h-screen w-full flex items-center justify-center px-6 py-24 border-t border-white/5 relative bg-gradient-to-b from-black/40 to-black/80">
           <div className="max-w-3xl w-full text-center space-y-8 relative">
             <div className="space-y-2">
-              <span className="font-mono text-[10px] tracking-[0.5em] text-[#c5a26f] block uppercase">CHAPTER IV // SIGNS</span>
+              <span className="font-mono text-[10px] tracking-[0.5em] text-[#c5a26f] block uppercase">CHAPTER IV</span>
               <h2 className="text-5xl md:text-8xl font-black tracking-tight font-sans">THE SIGNAL.</h2>
             </div>
             <p className="font-mono text-xs md:text-sm text-white/50 max-w-xl mx-auto leading-relaxed">For serious inquiries, aligned collaborations, or opportunities that fit the work, use the terminal.</p>
@@ -1116,19 +1110,10 @@ export default function UltimateCorpExperience() {
         <div>2026 • 1337</div>
       </footer>
 
-      <TerminalModal 
-        isOpen={terminalOpen} 
-        onClose={() => setTerminalOpen(false)} 
+      <TerminalModal
+        isOpen={terminalOpen}
+        onClose={() => setTerminalOpen(false)}
       />
-
-      <AnimatePresence>
-        {!hasBooted && (
-          <motion.div exit={{ opacity: 0 }} className="fixed inset-0 z-[999999] bg-[#05050a] flex flex-col items-center justify-center font-mono text-[10px] tracking-[0.4em] text-white">
-            <motion.div initial={{ width: 0 }} animate={{ width: "160px" }} transition={{ duration: 0.9 }} className="h-[1px] bg-white mb-4" />
-            <div className="animate-pulse text-white/60">LOADING...</div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
