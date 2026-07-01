@@ -1077,7 +1077,7 @@ export default function UltimateCorpExperience() {
           <div className="max-w-6xl w-full space-y-16">
             <div className="text-center space-y-3">
               <span className="font-mono text-[10px] tracking-[0.4em] text-[#ff00aa] block uppercase">CHAPTER III // INDUCTION PHASES</span>
-              <h2 className="text-4xl md:text-6xl font-light tracking-tight font-sans">The Collective.</h2>
+              <h2 className="text-4xl md:text-6xl font-light tracking-tight font-sans">The Vision.</h2>
             </div>
             <div className="grid md:grid-cols-3 gap-6">
               {operatives.map((op) => (
@@ -1100,10 +1100,10 @@ export default function UltimateCorpExperience() {
         <section id="signal" className="min-h-screen w-full flex items-center justify-center px-6 py-24 border-t border-white/5 relative bg-gradient-to-b from-black/40 to-black/80">
           <div className="max-w-3xl w-full text-center space-y-8 relative">
             <div className="space-y-2">
-              <span className="font-mono text-[10px] tracking-[0.5em] text-[#c5a26f] block uppercase">CHAPTER IV // EPILOGUE</span>
+              <span className="font-mono text-[10px] tracking-[0.5em] text-[#c5a26f] block uppercase">CHAPTER IV // SIGNS</span>
               <h2 className="text-5xl md:text-8xl font-black tracking-tight font-sans">THE SIGNAL.</h2>
             </div>
-            <p className="font-mono text-xs md:text-sm text-white/50 max-w-xl mx-auto leading-relaxed">If you have read this far, it has already begun.</p>
+            <p className="font-mono text-xs md:text-sm text-white/50 max-w-xl mx-auto leading-relaxed">For serious inquiries, aligned collaborations, or opportunities that fit the work, use the terminal.</p>
             <div className="pt-4 space-y-4">
               <button onClick={() => setTerminalOpen(true)} className="font-mono text-[11px] tracking-[0.3em] border border-white/20 hover:border-white bg-transparent hover:bg-white hover:text-black px-8 py-4 transition-all duration-500 flex items-center gap-3 mx-auto">
                 <Command size={14} /> OPEN CONTACT
