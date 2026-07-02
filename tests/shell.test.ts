@@ -85,7 +85,7 @@ describe("execute — the contact channel", () => {
   });
 });
 
-describe("execute — housekeeping and the hidden plate", () => {
+describe("execute — housekeeping", () => {
   it("exit closes, clear clears", () => {
     expect(execute("exit", ctx).effects).toEqual([{ kind: "close" }]);
     expect(execute("clear", ctx).effects).toEqual([{ kind: "clear" }]);
@@ -95,7 +95,9 @@ describe("execute — housekeeping and the hidden plate", () => {
     const text = execute("help", ctx).lines.map((l) => l.text).join("\n");
     for (const d of DIRECTIVES) {
       if (d === "help") continue; // help doesn't advertise itself
-      expect(text).toContain(d);
+      // Line-anchored: each directive owns its own help line, so a mention
+      // inside another line's usage text can't satisfy the floor.
+      expect(text).toMatch(new RegExp(`^\\s{2}${d}\\b`, "m"));
     }
   });
 

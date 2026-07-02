@@ -32,7 +32,7 @@ export const PLATES = [
   { numeral: "IV", slug: "contact", title: "Transmission" },
 ] as const;
 
-/** Commands surfaced to autocomplete and `help`. `1337` stays unlisted. */
+/** Commands surfaced to autocomplete and `help`. */
 export const DIRECTIVES = ["help", "ls", "cd", "contact", "whoami", "clear", "exit"] as const;
 
 export const CONTACT_EMAIL = "hello@1337.cd";

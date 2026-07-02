@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { hash01 } from "./graphics";
+import { useReducedMotionSafe } from "./media";
 import {
   CONTACT_EMAIL,
   autocomplete,
@@ -24,10 +25,10 @@ let lineKey = 0;
 const keyed = (l: TermLine) => ({ ...l, id: `l${lineKey++}` });
 
 // Keyed once at module load; ids are unique for the document's lifetime.
-const OPENING = [
+const OPENING = ([
   { text: "1337 CONTACT — INTERFACE", type: "header" },
   { text: "Type 'contact' to show the primary email, 'help' for the rest.", type: "system" },
-].map((l) => keyed(l as TermLine));
+] satisfies TermLine[]).map(keyed);
 
 export default function Terminal({ isOpen, onClose, onNavigate }: TerminalProps) {
   const [input, setInput] = useState("");
@@ -42,6 +43,7 @@ export default function Terminal({ isOpen, onClose, onNavigate }: TerminalProps)
   const dialogRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const scrambleRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reduced = useReducedMotionSafe();
 
   const suggestion = useMemo(() => autocomplete(input), [input]);
 
@@ -93,12 +95,14 @@ export default function Terminal({ isOpen, onClose, onNavigate }: TerminalProps)
     const result = execute(trimmed, { contactShown: showContact });
     append(result.lines);
 
+    // Close is applied after every other effect has run, so a failed cd
+    // keeps the terminal open regardless of the emitter's effect order.
     let navigationFailed = false;
+    let closeRequested = false;
     for (const effect of result.effects) {
       switch (effect.kind) {
         case "close":
-          // A failed cd must stay open so its error line is actually seen.
-          if (!navigationFailed) onClose();
+          closeRequested = true;
           break;
         case "clear":
           stopScramble();
@@ -123,6 +127,8 @@ export default function Terminal({ isOpen, onClose, onNavigate }: TerminalProps)
         }
       }
     }
+    // A failed cd must stay open so its error line is actually seen.
+    if (closeRequested && !navigationFailed) onClose();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -181,11 +187,16 @@ export default function Terminal({ isOpen, onClose, onNavigate }: TerminalProps)
     }
   };
 
+  // Explicit behavior:"smooth" overrides the CSS reduced-motion
+  // kill-switch, so the preference is honored here in JS as well.
   useEffect(() => {
     if (bufferEndRef.current) {
-      bufferEndRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      bufferEndRef.current.scrollIntoView({
+        behavior: reduced ? "auto" : "smooth",
+        block: "nearest",
+      });
     }
-  }, [history, decryptedEmail]);
+  }, [history, decryptedEmail, reduced]);
 
   // Focus management + teardown: remember the trigger, focus the input on
   // open; on close, finish any half-decrypted email (never leave the one
@@ -257,16 +268,14 @@ export default function Terminal({ isOpen, onClose, onNavigate }: TerminalProps)
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.98, y: 10 }}
             transition={{ duration: 0.3, ease: [0.19, 1, 0.22, 1] }}
-            className="w-full max-w-4xl overflow-hidden rounded-xl border border-white/10 bg-[#030306] shadow-2xl"
+            className="w-full max-w-4xl overflow-hidden border border-white/10 bg-[#030306] shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-white/5 bg-black/40 px-5 py-3 font-mono text-[10px]">
               <div className="flex items-center gap-6">
-                <div className="flex gap-1.5" aria-hidden="true">
-                  <div className="h-2.5 w-2.5 rounded-full bg-[#ff2e63]/60" />
-                  <div className="h-2.5 w-2.5 rounded-full bg-[#ffaa00]/60" />
-                  <div className="h-2.5 w-2.5 rounded-full bg-[#00ff88]/60" />
+                <span aria-hidden="true" className="h-2 w-2 bg-[#00ff9f]/80" />
+                <div className="tracking-[3px] text-white/40">
+                  TTY 1337 <span className="text-white/20">·</span> SIGNAL SECURE
                 </div>
-                <div className="tracking-[3px] text-white/40">TERMINAL</div>
               </div>
               <button
                 onClick={onClose}
@@ -280,20 +289,25 @@ export default function Terminal({ isOpen, onClose, onNavigate }: TerminalProps)
             </div>
 
             <div
-              className="h-[min(380px,50dvh)] space-y-1.5 overflow-y-auto bg-[#040408]/90 p-6 font-mono text-[11px]"
+              className="h-[min(380px,50dvh)] overflow-y-auto bg-[#040408]/90 p-6 font-mono text-[11px]"
               onClick={() => inputRef.current?.focus()}
             >
-              {history.map((line) => (
-                <div
-                  key={line.id}
-                  className={`whitespace-pre-wrap leading-relaxed tracking-wide ${lineClass(line.type)}`}
-                >
-                  {line.text}
-                </div>
-              ))}
+              {/* The command log announces its own output to screen readers.
+                  The contact card lives OUTSIDE the live region so the
+                  55ms decrypt scramble never spams announcements. */}
+              <div role="log" className="space-y-1.5">
+                {history.map((line) => (
+                  <div
+                    key={line.id}
+                    className={`whitespace-pre-wrap leading-relaxed tracking-wide ${lineClass(line.type)}`}
+                  >
+                    {line.text}
+                  </div>
+                ))}
+              </div>
 
               {showContact && (
-                <div className="mt-4 rounded-lg border border-white/5 bg-white/[0.01] p-4">
+                <div className="mt-4 border border-white/10 bg-white/[0.01] p-4">
                   <div className="mb-1 text-[9px] tracking-widest text-white/40">PRIMARY CONTACT</div>
                   <div className="select-all text-lg font-bold tracking-wider text-white">
                     {decryptedEmail}
@@ -311,7 +325,7 @@ export default function Terminal({ isOpen, onClose, onNavigate }: TerminalProps)
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  className="z-10 w-full bg-transparent text-white outline-none placeholder:text-white/40"
+                  className="z-10 w-full bg-transparent text-white outline-none placeholder:text-white/40 [@media(pointer:coarse)]:text-base"
                   placeholder="type command…"
                   aria-label="Command input"
                   autoComplete="off"
@@ -327,7 +341,7 @@ export default function Terminal({ isOpen, onClose, onNavigate }: TerminalProps)
                   </span>
                 )}
               </div>
-              <div className="hidden text-[9px] tracking-widest text-white/40 md:block">
+              <div className="hidden text-[9px] tracking-widest text-white/55 md:block">
                 [TAB] AUTOCOMPLETE • [↑↓] HISTORY • [ESC] CLOSE
               </div>
             </div>

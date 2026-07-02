@@ -1,13 +1,24 @@
 // @vitest-environment jsdom
-import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import Terminal from "../app/Terminal";
 
-// jsdom implements neither scrollIntoView nor real layout; stub the one
-// method the component calls so the real effect code still runs.
+// jsdom implements neither scrollIntoView, real layout, nor matchMedia;
+// stub the two APIs the component touches so the real effect code still
+// runs. The matchMedia stub reports "no preference" — the default a real
+// browser gives — so the production reduced-motion branch is exercised.
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(() => false),
+  })) as unknown as typeof window.matchMedia;
 });
 
 // =========================================================================
@@ -75,10 +86,51 @@ describe("the signal channel executes the shell's effects", () => {
     expect(screen.getByText("PRIMARY CONTACT")).toBeTruthy();
   });
 
+  it("clear really empties the session buffer, including the contact card", () => {
+    const { input } = openChannel();
+    type(input, "help");
+    type(input, "contact");
+    expect(screen.getByText(/AVAILABLE COMMANDS/)).toBeTruthy();
+    expect(screen.getByText("PRIMARY CONTACT")).toBeTruthy();
+    type(input, "clear");
+    expect(screen.queryByText(/AVAILABLE COMMANDS/)).toBeNull();
+    expect(screen.queryByText("PRIMARY CONTACT")).toBeNull();
+    expect(screen.queryByText("1337 CONTACT — INTERFACE")).toBeNull();
+  });
+
   it("Tab completes a partial directive in place", () => {
     const { input } = openChannel();
     fireEvent.change(input, { target: { value: "con" } });
     fireEvent.keyDown(input, { key: "Tab" });
     expect(input.value).toBe("contact");
+  });
+
+  it("contact decrypts to the real primary email — not scrambled residue", () => {
+    vi.useFakeTimers();
+    try {
+      const { input } = openChannel();
+      type(input, "contact");
+      // The scramble runs 11 ticks at 55ms; drive it past completion.
+      act(() => {
+        vi.advanceTimersByTime(55 * 12);
+      });
+      expect(screen.getByText("hello@1337.cd")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("arrow keys walk the command history in both directions", () => {
+    const { input } = openChannel();
+    type(input, "ls");
+    type(input, "whoami");
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("whoami");
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("ls");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input.value).toBe("whoami");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input.value).toBe("");
   });
 });

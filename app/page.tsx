@@ -1,43 +1,40 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import dynamic from "next/dynamic";
+import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { hash01 } from "./graphics";
 import { useMediaQuery, useReducedMotionSafe, useWebGLSupported } from "./media";
 import CoreFallback from "./CoreFallback";
+import Schematic from "./Schematic";
 import Terminal from "./Terminal";
 import { PLATES } from "./shell";
 
-// The 3D core (three.js) is code-split out of the initial bundle. It only
-// downloads client-side, and CoreFallback covers the brief load window.
-const VeilCanvas = dynamic(() => import("./VeilCanvas"), {
-  ssr: false,
-  loading: () => null,
-});
+// The 3D core (three.js) is code-split out of the initial bundle. It mounts
+// only after hydration (coreEnabled is false on the server), and the
+// Suspense fallback keeps CoreFallback in the socket for the whole chunk
+// download — the core never collapses to a blank circle.
+const VeilCanvas = React.lazy(() => import("./VeilCanvas"));
 
 // =========================================================================
 // TYPES & INTERFACES
 // =========================================================================
-interface QuantumNode {
+interface LatticeNode {
   x: number;
   y: number;
   baseX: number;
   baseY: number;
-  vx: number;
-  vy: number;
   phase: number;
   speed: number;
 }
 
-interface Particle {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  size: number;
-  alpha: number;
-  hue: number;
+/** A phosphor signal travelling one lattice line — the grid carrying data. */
+interface SignalPulse {
+  axis: "h" | "v";
+  /** Base-coordinate row (axis h) or column (axis v) the pulse rides. */
+  lane: number;
+  /** 0..1 travel progress across the viewport. */
+  progress: number;
+  speed: number;
 }
 
 interface Division {
@@ -53,7 +50,7 @@ interface Division {
   color: string;
 }
 
-interface Operative {
+interface Principle {
   id: number;
   callsign: string;
   role: string;
@@ -110,22 +107,6 @@ const IconTerminal = ({ size = 12, className }: { size?: number; className?: str
     aria-hidden="true"
   >
     <path d="M2 3.5l4.5 4.5L2 12.5M8.5 12.5H14" />
-  </svg>
-);
-const IconChevron = ({ className }: { className?: string }) => (
-  <svg
-    width={14}
-    height={14}
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-    aria-hidden="true"
-  >
-    <path d="M5.5 2.5L11 8l-5.5 5.5" />
   </svg>
 );
 
@@ -187,7 +168,7 @@ const divisions: Division[] = [
   },
 ];
 
-const operatives: Operative[] = [
+const principles: Principle[] = [
   {
     id: 1,
     callsign: "SIMPLE",
@@ -208,14 +189,22 @@ const operatives: Operative[] = [
   },
 ];
 
+/** The engineering title block — the sheet's own metadata. */
+const SHEET_META = [
+  { label: "DWG NO.", value: "1337-CD" },
+  { label: "REV.", value: "2026.07" },
+  { label: "SHEET", value: "01 / 01" },
+] as const;
+
 // =========================================================================
-// COMPONENT: CUSTOM INTELLIGENT CURSOR
+// COMPONENT: TERMINAL CARET CURSOR
+// A block caret — the terminal's own cursor, loose on the page.
 // =========================================================================
-const CustomCursor: React.FC = () => {
+const CaretCursor: React.FC = () => {
   const [position, setPosition] = useState({ x: -100, y: -100 });
   const [isHovering, setIsHovering] = useState(false);
   const [isClicking, setIsClicking] = useState(false);
-  // Only devices with a real hovering pointer get the custom cursor. Touch /
+  // Only devices with a real hovering pointer get the custom caret. Touch /
   // coarse-pointer devices keep their native cursor (no dead dot, no hidden
   // pointer). SSR renders nothing, so there is no hydration flash.
   const fine = useMediaQuery("(hover: hover) and (pointer: fine)");
@@ -237,7 +226,7 @@ const CustomCursor: React.FC = () => {
         target.tagName === "BUTTON" ||
         target.tagName === "A" ||
         !!target.closest("[data-interactive]") ||
-        target.closest(".operative-card") !== null
+        !!target.closest("button, a")
       );
     };
 
@@ -258,77 +247,65 @@ const CustomCursor: React.FC = () => {
   if (!fine) return null;
 
   return (
-    <>
-      <motion.div
-        className="fixed top-0 left-0 z-[99] pointer-events-none mix-blend-difference"
-        animate={{
-          x: position.x - 4,
-          y: position.y - 4,
-          scale: isClicking ? 0.6 : isHovering ? 1.8 : 1,
-        }}
-        transition={{ type: "spring", stiffness: 800, damping: 35, mass: 0.2 }}
-      >
-        <div className="w-2 h-2 bg-white rounded-full" />
-      </motion.div>
-
-      <motion.div
-        className="fixed top-0 left-0 z-[98] pointer-events-none border border-white/40 rounded-full mix-blend-difference"
-        animate={{
-          x: position.x - 20,
-          y: position.y - 20,
-          scale: isHovering ? 1.4 : 1,
-          opacity: isHovering ? 0.6 : 0.3,
-        }}
-        transition={{ type: "spring", stiffness: 400, damping: 30 }}
-        style={{ width: 40, height: 40 }}
-      />
-    </>
+    <motion.div
+      className="pointer-events-none fixed left-0 top-0 z-[99] mix-blend-difference"
+      animate={{
+        x: position.x - 5,
+        y: position.y - 11,
+        scaleY: isClicking ? 0.7 : 1,
+        scaleX: isHovering ? 1.5 : 1,
+        opacity: isHovering ? 1 : 0.85,
+      }}
+      transition={{ type: "spring", stiffness: 800, damping: 35, mass: 0.2 }}
+    >
+      <div className="h-[22px] w-[10px] bg-white" />
+    </motion.div>
   );
 };
 
 // =========================================================================
-// COMPONENT: LAYERED CANVAS SPACE (QUANTUM FIELD + NEON PARTICLES)
+// COMPONENT: SIGNAL FIELD — one canvas: the node lattice, plus phosphor
+// pulses riding its lines. The single ambient system on the page.
 // =========================================================================
-const CombinedBackgroundSpace: React.FC<{
+const SignalField: React.FC<{
   scrollRef: React.RefObject<number>;
   reduced: boolean;
 }> = ({ scrollRef, reduced }) => {
-  const quantumCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const particleCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mouseRef = useRef({ x: -1000, y: -1000, targetX: -1000, targetY: -1000, active: false });
-  const particlesRef = useRef<Particle[]>([]);
-
-  const initParticles = useCallback((width: number, height: number) => {
-    const particles: Particle[] = [];
-    // Cap the count so the O(n²) connection pass and per-frame draw stay bounded
-    // on very large / high-DPI displays instead of scaling with screen area.
-    const count = Math.min(Math.floor((width * height) / 22000), 180);
-    for (let i = 0; i < count; i++) {
-      particles.push({
-        x: hash01(i * 3.1) * width,
-        y: hash01(i * 7.7) * height,
-        vx: (hash01(i * 13.3) - 0.5) * 0.15,
-        vy: (hash01(i * 17.9) - 0.5) * 0.15,
-        size: hash01(i * 23.1) * 1.6 + 0.5,
-        alpha: hash01(i * 29.7) * 0.4 + 0.1,
-        hue: hash01(i * 31.3) > 0.75 ? 195 : 340,
-      });
-    }
-    particlesRef.current = particles;
-  }, []);
 
   useEffect(() => {
-    const qCanvas = quantumCanvasRef.current;
-    const pCanvas = particleCanvasRef.current;
-    if (!qCanvas || !pCanvas) return;
-
-    const qCtx = qCanvas.getContext("2d");
-    const pCtx = pCanvas.getContext("2d");
-    if (!qCtx || !pCtx) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      // Decorative layer only — the page stays readable on the dark ground —
+      // but the degradation is logged, never silent.
+      console.error("signal field: 2d context unavailable, ambient layer disabled");
+      return;
+    }
 
     let animFrameId: number;
-    let nodes: QuantumNode[] = [];
+    let nodes: LatticeNode[] = [];
+    let pulses: SignalPulse[] = [];
+    let pulseSeed = 1;
     const spacing = 50;
+    const PULSE_COUNT = 3;
+
+    const spawnPulse = (): SignalPulse => {
+      const h = window.innerHeight;
+      const w = window.innerWidth;
+      const axis: "h" | "v" = hash01(pulseSeed * 17.3) > 0.5 ? "h" : "v";
+      const laneCount = Math.max(1, Math.floor((axis === "h" ? h : w) / spacing));
+      const pulse: SignalPulse = {
+        axis,
+        lane: Math.floor(hash01(pulseSeed * 31.7) * laneCount) * spacing,
+        progress: -hash01(pulseSeed * 7.1) * 0.6,
+        speed: 0.0016 + hash01(pulseSeed * 13.9) * 0.0022,
+      };
+      pulseSeed++;
+      return pulse;
+    };
 
     const resize = () => {
       const w = window.innerWidth;
@@ -338,24 +315,17 @@ const CombinedBackgroundSpace: React.FC<{
 
       // Canonical hi-DPI setup: the backing store is DPR-scaled for crispness,
       // but the *display* size is pinned to the viewport in CSS pixels.
-      qCanvas.width = w * dpr;
-      qCanvas.height = h * dpr;
-      qCanvas.style.width = `${w}px`;
-      qCanvas.style.height = `${h}px`;
-      qCtx.setTransform(1, 0, 0, 1, 0, 0);
-      qCtx.scale(dpr, dpr);
-
-      pCanvas.width = w * dpr;
-      pCanvas.height = h * dpr;
-      pCanvas.style.width = `${w}px`;
-      pCanvas.style.height = `${h}px`;
-      pCtx.setTransform(1, 0, 0, 1, 0, 0);
-      pCtx.scale(dpr, dpr);
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
 
       initNodes(w, h);
-      initParticles(w, h);
+      pulses = Array.from({ length: PULSE_COUNT }, spawnPulse);
 
-      // Setting canvas.width/height cleared both backing stores. When reduced,
+      // Setting canvas.width/height cleared the backing store. When reduced,
       // the loop never reschedules, so repaint the single static frame now.
       if (reduced) loop();
     };
@@ -374,8 +344,6 @@ const CombinedBackgroundSpace: React.FC<{
             y,
             baseX: x,
             baseY: y,
-            vx: 0,
-            vy: 0,
             phase: hash01(i * 131.1 + j * 7.3) * Math.PI * 2,
             speed: 0.008 + hash01(i * 17.7 + j * 41.9) * 0.015,
           });
@@ -384,11 +352,16 @@ const CombinedBackgroundSpace: React.FC<{
     };
 
     const handleMouseMove = (e: MouseEvent) => {
-      mouseRef.current.targetX = e.clientX;
-      mouseRef.current.targetY = e.clientY;
-      mouseRef.current.x = e.clientX;
-      mouseRef.current.y = e.clientY;
-      mouseRef.current.active = true;
+      const mouse = mouseRef.current;
+      mouse.targetX = e.clientX;
+      mouse.targetY = e.clientY;
+      // First contact snaps (no sweep in from offscreen); afterwards the
+      // frame loop eases x/y toward the target.
+      if (!mouse.active) {
+        mouse.x = e.clientX;
+        mouse.y = e.clientY;
+        mouse.active = true;
+      }
     };
 
     const handleMouseLeave = () => {
@@ -410,27 +383,31 @@ const CombinedBackgroundSpace: React.FC<{
       mouse.x += (mouse.targetX - mouse.x) * 0.1;
       mouse.y += (mouse.targetY - mouse.y) * 0.1;
 
-      qCtx.clearRect(0, 0, w, h);
+      ctx.clearRect(0, 0, w, h);
 
       // Read cleanly from the shared ref — never a prop, so scrolling never
       // re-renders the parent tree (or this component).
       const currentScroll = scrollRef.current;
       const scrollRotation = currentScroll * Math.PI * 0.12;
       const scrollScale = 1 + currentScroll * 0.25;
+      const cos = Math.cos(scrollRotation);
+      const sin = Math.sin(scrollRotation);
+
+      /** Base grid coords → screen coords under the scroll transform. */
+      const project = (bx: number, by: number): [number, number] => {
+        const cx = bx - w / 2;
+        const cy = by - h / 2;
+        return [w / 2 + (cx * cos - cy * sin) * scrollScale, h / 2 + (cx * sin + cy * cos) * scrollScale];
+      };
 
       nodes.forEach((node) => {
         node.phase += node.speed;
         const driftX = Math.cos(node.phase + time) * 5;
         const driftY = Math.sin(node.phase * 1.3 + time) * 5;
 
-        const cx = node.baseX - w / 2;
-        const cy = node.baseY - h / 2;
-
-        const rx = cx * Math.cos(scrollRotation) - cy * Math.sin(scrollRotation);
-        const ry = cx * Math.sin(scrollRotation) + cy * Math.cos(scrollRotation);
-
-        let targetX = w / 2 + rx * scrollScale + driftX;
-        let targetY = h / 2 + ry * scrollScale + driftY;
+        const [px, py] = project(node.baseX, node.baseY);
+        let targetX = px + driftX;
+        let targetY = py + driftY;
 
         if (mouse.active) {
           const dx = mouse.x - targetX;
@@ -438,8 +415,8 @@ const CombinedBackgroundSpace: React.FC<{
           const dist = Math.sqrt(dx * dx + dy * dy);
           const maxDist = 240;
 
-          // dist > 0 guards the dx/dist normalize against a 0/0 = NaN that would
-          // permanently corrupt this node (matches the particle loop's guard).
+          // dist > 0 guards the dx/dist normalize against a 0/0 = NaN that
+          // would permanently corrupt this node.
           if (dist > 0 && dist < maxDist) {
             const force = (maxDist - dist) / maxDist;
             const pull = Math.sin(force * Math.PI - Math.PI / 2) * 40;
@@ -452,13 +429,11 @@ const CombinedBackgroundSpace: React.FC<{
         node.y += (targetY - node.y) * 0.1;
       });
 
-      qCtx.strokeStyle = "rgba(255, 255, 255, 0.025)";
-      qCtx.lineWidth = 0.5;
-
+      ctx.lineWidth = 0.5;
       for (let i = 0; i < nodes.length; i++) {
         const n1 = nodes[i];
-        qCtx.fillStyle = `rgba(255, 255, 255, ${0.06 + Math.sin(n1.phase) * 0.03})`;
-        qCtx.fillRect(n1.x - 0.75, n1.y - 0.75, 1.5, 1.5);
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.06 + Math.sin(n1.phase) * 0.03})`;
+        ctx.fillRect(n1.x - 0.75, n1.y - 0.75, 1.5, 1.5);
 
         for (let j = i + 1; j < i + 5; j++) {
           if (j >= nodes.length) break;
@@ -469,81 +444,58 @@ const CombinedBackgroundSpace: React.FC<{
 
           if (d < spacing * 1.5) {
             const alpha = (1 - d / (spacing * 1.5)) * 0.08;
-            qCtx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-            qCtx.beginPath();
-            qCtx.moveTo(n1.x, n1.y);
-            qCtx.lineTo(n2.x, n2.y);
-            qCtx.stroke();
+            ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+            ctx.beginPath();
+            ctx.moveTo(n1.x, n1.y);
+            ctx.lineTo(n2.x, n2.y);
+            ctx.stroke();
           }
         }
       }
 
-      pCtx.fillStyle = "rgba(5, 5, 10, 0.08)";
-      pCtx.fillRect(0, 0, w, h);
+      // Phosphor pulses — data moving through the lattice. Each rides one
+      // base grid line under the same scroll transform as the nodes.
+      const TAIL_STEPS = 7;
+      const TAIL_LEN = 90;
+      for (const pulse of pulses) {
+        const span = (pulse.axis === "h" ? w : h) + spacing * 2;
+        const headDist = pulse.progress * span - spacing;
 
-      const parts = particlesRef.current;
-      pCtx.lineWidth = 0.6;
-
-      for (let i = 0; i < parts.length; i++) {
-        const p = parts[i];
-
-        if (mouse.active) {
-          const dx = mouse.x - p.x;
-          const dy = mouse.y - p.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-
-          if (dist < 260 && dist > 0) {
-            const force = ((260 - dist) / 260) * 0.012;
-            p.vx += (dx / dist) * force;
-            p.vy += (dy / dist) * force;
-          }
+        for (let s = 0; s < TAIL_STEPS; s++) {
+          const d0 = headDist - (s / TAIL_STEPS) * TAIL_LEN;
+          const d1 = headDist - ((s + 1) / TAIL_STEPS) * TAIL_LEN;
+          const alpha = 0.3 * (1 - s / TAIL_STEPS);
+          const [x0, y0] =
+            pulse.axis === "h" ? project(d0, pulse.lane) : project(pulse.lane, d0);
+          const [x1, y1] =
+            pulse.axis === "h" ? project(d1, pulse.lane) : project(pulse.lane, d1);
+          ctx.strokeStyle = `rgba(0, 255, 159, ${alpha})`;
+          ctx.lineWidth = s === 0 ? 1.2 : 0.8;
+          ctx.beginPath();
+          ctx.moveTo(x0, y0);
+          ctx.lineTo(x1, y1);
+          ctx.stroke();
         }
 
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vx *= 0.99;
-        p.vy *= 0.99;
-
-        if (p.x < 0 || p.x > w) p.vx *= -0.6;
-        if (p.y < 0 || p.y > h) p.vy *= -0.6;
-
-        p.x = Math.max(0, Math.min(w, p.x));
-        p.y = Math.max(0, Math.min(h, p.y));
-
-        for (let j = i + 1; j < parts.length; j++) {
-          const p2 = parts[j];
-          const dx = p.x - p2.x;
-          const dy = p.y - p2.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-
-          if (dist < 90) {
-            pCtx.globalAlpha = (1 - dist / 90) * 0.25 * Math.min(p.alpha, p2.alpha);
-            pCtx.strokeStyle = p.hue === 195 ? "rgba(0, 229, 255, 0.12)" : "rgba(255, 46, 99, 0.12)";
-            pCtx.beginPath();
-            pCtx.moveTo(p.x, p.y);
-            pCtx.lineTo(p2.x, p2.y);
-            pCtx.stroke();
+        if (!reduced) {
+          pulse.progress += pulse.speed;
+          if (pulse.progress > 1.2) {
+            const idx = pulses.indexOf(pulse);
+            pulses[idx] = spawnPulse();
           }
         }
       }
-
-      for (const p of parts) {
-        pCtx.globalAlpha = p.alpha;
-        pCtx.fillStyle = p.hue === 195 ? "#00e5ff" : "#ff2e63";
-        pCtx.beginPath();
-        pCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        pCtx.fill();
-      }
-      pCtx.globalAlpha = 1;
 
       // Reduced motion: paint a single static frame and never reschedule.
       if (!reduced) animFrameId = requestAnimationFrame(loop);
     };
 
-    // Size the canvases and seed geometry, then paint. Ordered after loop() is
-    // defined so resize()'s reduced-motion repaint has a function to call.
+    // Size the canvas and seed geometry, then paint. The first paint is
+    // deferred one frame so it runs after the page's own mount effects have
+    // seeded scrollRef — the reduced-motion single frame then reads the
+    // restored scroll position instead of 0.
     resize();
-    loop();
+    animFrameId = requestAnimationFrame(loop);
 
     return () => {
       window.removeEventListener("resize", resize);
@@ -551,73 +503,184 @@ const CombinedBackgroundSpace: React.FC<{
       document.removeEventListener("mouseleave", handleMouseLeave);
       cancelAnimationFrame(animFrameId);
     };
-  }, [initParticles, reduced, scrollRef]); // scrollRef is a stable ref; reduced re-inits the loop
+  }, [reduced, scrollRef]); // scrollRef is a stable ref; reduced re-inits the loop
 
-  return (
-    <>
-      <canvas ref={particleCanvasRef} aria-hidden="true" className="fixed inset-0 z-0 bg-[#05050a]" />
-      <canvas
-        ref={quantumCanvasRef}
-        aria-hidden="true"
-        className="fixed inset-0 z-[1] pointer-events-none mix-blend-screen"
-      />
-    </>
-  );
+  return <canvas ref={canvasRef} aria-hidden="true" className="fixed inset-0 z-0 bg-[#05050a]" />;
 };
 
 // =========================================================================
-// COMPONENT: GLITCH LOGO ARCHITECTURE
+// COMPONENT: GLITCH WORDMARK
 // =========================================================================
 const GlitchLogo: React.FC = () => {
   const [isGlitching, setIsGlitching] = useState(false);
+  const glitchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reduced = useReducedMotionSafe();
 
   const triggerGlitch = () => {
+    // The chromatic flash is motion; reduced-motion readers never see it.
+    if (reduced) return;
+    // Re-triggering restarts the window instead of letting the earlier
+    // timer cut the new flash short.
+    if (glitchTimer.current) clearTimeout(glitchTimer.current);
     setIsGlitching(true);
-    setTimeout(() => setIsGlitching(false), 380);
+    glitchTimer.current = setTimeout(() => setIsGlitching(false), 380);
   };
+
+  useEffect(
+    () => () => {
+      if (glitchTimer.current) clearTimeout(glitchTimer.current);
+    },
+    []
+  );
+
+  const markClass = "font-mono text-display-xl font-semibold tracking-[-0.06em]";
 
   return (
     <div
-      className="relative cursor-pointer select-none group inline-block text-center"
+      className="group relative inline-block cursor-pointer select-none text-center"
       onMouseEnter={triggerGlitch}
       onClick={triggerGlitch}
     >
-      <div className="relative inline-block mx-auto">
+      <div className="relative mx-auto inline-block">
         <div
-          className={`font-mono text-[96px] md:text-[140px] leading-[0.8] tracking-[-5px] font-black text-white transition-all duration-75 ${isGlitching ? "opacity-90" : ""}`}
+          className={`${markClass} text-white transition-all duration-75 ${isGlitching ? "opacity-90" : ""}`}
           style={{
             fontFeatureSettings: '"tnum"',
             textShadow: isGlitching
               ? "3px 0 #ff2e63, -3px 0 #00e5ff"
-              : "0 0 50px rgba(0, 229, 255, 0.12)",
+              : "0 0 60px rgba(0, 255, 159, 0.1)",
           }}
         >
           1337
         </div>
+        {/* Chromatic-aberration flash — CRT physics, not palette. */}
         {isGlitching && (
           <>
             <div
-              className="absolute top-0 left-0 font-mono text-[96px] md:text-[140px] leading-[0.8] tracking-[-5px] font-black text-[#ff2e63] opacity-80"
+              className={`${markClass} absolute left-0 top-0 text-[#ff2e63] opacity-80`}
               style={{ transform: "translate(-2px, 1px)", clipPath: "inset(0 0 40% 0)" }}
             >
               1337
             </div>
             <div
-              className="absolute top-0 left-0 font-mono text-[96px] md:text-[140px] leading-[0.8] tracking-[-5px] font-black text-[#00e5ff] opacity-80"
+              className={`${markClass} absolute left-0 top-0 text-[#00e5ff] opacity-80`}
               style={{ transform: "translate(2px, -1px)", clipPath: "inset(40% 0 0 0)" }}
             >
               1337
             </div>
           </>
         )}
-        <div className="absolute -bottom-3 right-1 text-[11px] tracking-[7px] font-bold text-white/50 font-mono">
+        <div className="absolute -bottom-2 right-1 font-mono text-[11px] font-bold tracking-[7px] text-white/50">
           CORP.
         </div>
       </div>
-      <div className="h-[2px] w-20 bg-gradient-to-r from-[#00e5ff] via-white to-[#ff2e63] mx-auto mt-4 opacity-40 group-hover:opacity-100 transition-all duration-500 group-hover:w-32" />
+      <div className="mx-auto mt-6 h-px w-20 bg-[#00ff9f] opacity-40 transition-all duration-500 group-hover:w-32 group-hover:opacity-90" />
     </div>
   );
 };
+
+// =========================================================================
+// COMPONENT: TYPED PROMPT — the hero's opening keystroke. SSR renders the
+// finished line (crawlers and no-JS readers see everything); after
+// hydration it re-types once, motion permitting. Decorative: aria-hidden.
+// =========================================================================
+const TYPED_COMMAND = "cd 1337.cd";
+
+const TypedPrompt: React.FC<{ reduced: boolean }> = ({ reduced }) => {
+  const [typed, setTyped] = useState(TYPED_COMMAND);
+
+  useEffect(() => {
+    if (reduced) return;
+    // The first tick clears the SSR-painted line; the rest type it back.
+    // All state changes happen inside the timer callback, never in the
+    // effect body itself.
+    let i = -1;
+    const interval = setInterval(() => {
+      i++;
+      setTyped(TYPED_COMMAND.slice(0, i));
+      if (i >= TYPED_COMMAND.length) clearInterval(interval);
+    }, 75);
+    return () => clearInterval(interval);
+  }, [reduced]);
+
+  // If the preference flips to reduced mid-animation, render the whole
+  // line — a half-typed command must never freeze on screen.
+  const shown = reduced ? TYPED_COMMAND : typed;
+
+  return (
+    <div aria-hidden="true" className="font-mono text-xs tracking-wide text-white/50 md:text-sm">
+      <span className="text-[#00ff9f]/90">guest@world</span>
+      <span className="text-white/40">:~$ </span>
+      <span className="text-white/85">{shown}</span>
+      <span className="caret-blink ml-0.5 inline-block h-[1.05em] w-[0.55em] translate-y-[0.18em] bg-[#00ff9f]/80" />
+    </div>
+  );
+};
+
+// =========================================================================
+// SCROLL-REVEAL PRIMITIVE — arms after hydration; SSR/no-JS stay visible.
+// =========================================================================
+const Reveal: React.FC<{
+  children: React.ReactNode;
+  className?: string;
+  /** Seconds; staggers siblings revealed by the same intersection. */
+  delay?: number;
+}> = ({ children, className, delay = 0 }) => {
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // No IntersectionObserver → no choreography: reveal immediately rather
+    // than crashing the route or hiding content.
+    if (typeof IntersectionObserver === "undefined") {
+      el.setAttribute("data-in", "");
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          el.setAttribute("data-in", "");
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.12, rootMargin: "0px 0px -8% 0px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      data-reveal=""
+      className={className}
+      style={delay ? ({ "--reveal-delay": `${delay}s` } as React.CSSProperties) : undefined}
+    >
+      {children}
+    </div>
+  );
+};
+
+// =========================================================================
+// COMPONENT: SECTION HEADER — the sheet's chapter rule. Encodes the real
+// reading order the terminal's `ls` reports.
+// =========================================================================
+const SectionHeader: React.FC<{ numeral: string; title: string; index: number }> = ({
+  numeral,
+  title,
+  index,
+}) => (
+  <Reveal className="mb-14 flex items-end justify-between border-b border-white/10 pb-4">
+    <span className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.4em] text-white/60">
+      <span aria-hidden="true" className="h-1.5 w-1.5 bg-[#00ff9f]" />
+      CH. {numeral} — {title}
+    </span>
+    <span className="font-mono text-[10px] tracking-[0.3em] text-white/25">
+      {String(index).padStart(2, "0")} / {String(PLATES.length).padStart(2, "0")}
+    </span>
+  </Reveal>
+);
 
 // =========================================================================
 // MAIN INTEGRATED TRANSCENDENT INTERFACE
@@ -626,18 +689,22 @@ export default function UltimateCorpExperience() {
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState("hero");
-  const [coreInView, setCoreInView] = useState(false);
+  // Starts true so that without IntersectionObserver the core simply keeps
+  // rendering; the observer corrects it right after mount everywhere else.
+  const [coreInView, setCoreInView] = useState(true);
 
   const [currentDivIndex, setCurrentDivIndex] = useState(0);
   const [pulseTrigger, setPulseTrigger] = useState(0);
   const vMouse = useRef({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement | null>(null);
   const coreRef = useRef<HTMLDivElement | null>(null);
-  // Scroll progress drives only the frame-overlay opacity and the background
-  // parallax, so it lives in refs (not state): scrolling updates the DOM
-  // directly and never re-renders the tree.
+  // Scroll progress drives only the nav progress hairline, the structural
+  // guides' brightness, and the background parallax, so it lives in refs
+  // (not state): scrolling updates the DOM directly and never re-renders.
   const scrollProgressRef = useRef(0);
-  const frameOverlayRef = useRef<HTMLDivElement | null>(null);
+  const progressBarRef = useRef<HTMLDivElement | null>(null);
+  const guidesRef = useRef<HTMLDivElement | null>(null);
+  const menuToggleRef = useRef<HTMLButtonElement | null>(null);
 
   const reduced = useReducedMotionSafe();
 
@@ -650,6 +717,17 @@ export default function UltimateCorpExperience() {
 
   const activeDivision = divisions[currentDivIndex];
 
+  // Arm the reveal system after hydration; without JS (or with reduced
+  // motion) nothing is ever hidden.
+  useEffect(() => {
+    if (reduced) {
+      document.documentElement.classList.remove("reveal-armed");
+      return;
+    }
+    document.documentElement.classList.add("reveal-armed");
+    return () => document.documentElement.classList.remove("reveal-armed");
+  }, [reduced]);
+
   useEffect(() => {
     let ticking = false;
     const compute = () => {
@@ -659,9 +737,12 @@ export default function UltimateCorpExperience() {
       if (totalHeight <= 0) return;
       const p = Math.min(Math.max(window.scrollY / totalHeight, 0), 1);
       scrollProgressRef.current = p;
-      // Drive the frame-overlay opacity imperatively — no React re-render.
-      if (frameOverlayRef.current) {
-        frameOverlayRef.current.style.opacity = String(0.3 + p * 0.7);
+      // Drive the chrome imperatively — no React re-render.
+      if (progressBarRef.current) {
+        progressBarRef.current.style.transform = `scaleX(${p})`;
+      }
+      if (guidesRef.current) {
+        guidesRef.current.style.opacity = String(0.4 + p * 0.6);
       }
     };
     // Coalesce scroll events to at most one update per frame.
@@ -671,16 +752,22 @@ export default function UltimateCorpExperience() {
       requestAnimationFrame(compute);
     };
     window.addEventListener("scroll", handleScroll, { passive: true });
-    // Seed from the initial/restored scroll position so the overlay opacity and
+    // Resize changes both scrollHeight and innerHeight — the progress
+    // instruments must not hold a stale fraction until the next scroll.
+    window.addEventListener("resize", handleScroll);
+    // Seed from the initial/restored scroll position so the chrome and
     // background parallax are correct on reload-while-scrolled or hash landings.
     compute();
-    return () => window.removeEventListener("scroll", handleScroll);
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", handleScroll);
+    };
   }, []);
 
   // Pause the 3D core's render loop whenever it is scrolled out of view.
   useEffect(() => {
     const el = coreRef.current;
-    if (!el) return;
+    if (!el || typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(
       ([entry]) => setCoreInView(entry.isIntersecting),
       { rootMargin: "100px" }
@@ -690,6 +777,8 @@ export default function UltimateCorpExperience() {
   }, []);
 
   useEffect(() => {
+    // Without IntersectionObserver the nav highlight simply stays put.
+    if (typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(
       (entries) => {
         // Pick the single most-visible section rather than letting the last
@@ -753,9 +842,12 @@ export default function UltimateCorpExperience() {
     return () => window.removeEventListener("keydown", handleGlobalKeys);
   }, []);
 
-  // The mobile menu closes on Escape and hands focus to its first item.
+  // The mobile menu closes on Escape, hands focus to its first item on
+  // open, and returns focus to its toggle on close (mirroring the
+  // terminal's own focus contract).
   useEffect(() => {
     if (!mobileMenuOpen) return;
+    const toggle = menuToggleRef.current;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setMobileMenuOpen(false);
     };
@@ -766,6 +858,7 @@ export default function UltimateCorpExperience() {
     return () => {
       window.removeEventListener("keydown", onKey);
       clearTimeout(t);
+      toggle?.focus({ preventScroll: true });
     };
   }, [mobileMenuOpen]);
 
@@ -793,21 +886,15 @@ export default function UltimateCorpExperience() {
 
   const navItems = PLATES.map((p) => ({
     id: p.slug,
-    label:
-      p.slug === "about"
-        ? "ABOUT"
-        : p.slug === "divisions"
-          ? "DIVISIONS"
-          : p.slug === "spectrum"
-            ? "SPECTRUM"
-            : "CONTACT",
+    numeral: p.numeral,
+    label: p.slug.toUpperCase(),
   }));
 
   return (
     <MotionConfig reducedMotion="user">
       <div
         ref={containerRef}
-        className="relative min-h-dvh bg-[#05050a] text-white overflow-x-clip selection:bg-[#00e5ff] selection:text-black font-sans"
+        className="relative min-h-dvh overflow-x-clip bg-[#05050a] font-sans text-white selection:bg-[#00ff9f] selection:text-black"
       >
         <a
           href="#main-content"
@@ -815,46 +902,55 @@ export default function UltimateCorpExperience() {
         >
           SKIP TO CONTENT
         </a>
-        <CombinedBackgroundSpace scrollRef={scrollProgressRef} reduced={reduced} />
-        <CustomCursor />
+        <SignalField scrollRef={scrollProgressRef} reduced={reduced} />
+        <CaretCursor />
 
+        {/* STRUCTURAL GUIDES — the drawing sheet's construction lines. */}
         <div
-          ref={frameOverlayRef}
-          className="fixed inset-0 pointer-events-none z-50 border-[1px] border-white/5 m-4"
-          style={{ opacity: 0.3 }}
-        />
-        <div className="fixed top-0 left-1/2 -translate-x-1/2 w-[1px] h-full bg-gradient-to-b from-white/0 via-white/5 to-white/0 pointer-events-none z-10" />
+          ref={guidesRef}
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-0 z-10 hidden md:block"
+          style={{ opacity: 0.4 }}
+        >
+          <div className="absolute left-1/4 top-0 h-full w-px bg-white/[0.04]" />
+          <div className="absolute left-2/4 top-0 h-full w-px bg-white/[0.05]" />
+          <div className="absolute left-3/4 top-0 h-full w-px bg-white/[0.04]" />
+        </div>
 
         {/* GLOBAL NAVIGATION */}
         <nav
           inert={terminalOpen}
-          className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-6 md:px-8 pb-6 pt-[max(1.5rem,env(safe-area-inset-top))] border-b border-white/5 bg-[#05050a]/60 backdrop-blur-xl mix-blend-difference"
+          aria-label="Primary"
+          className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between border-b border-white/10 bg-[#05050a]/70 px-6 pb-5 pt-[max(1.25rem,env(safe-area-inset-top))] backdrop-blur-xl md:px-8"
         >
           <button
             onClick={() => navigate("top")}
             aria-label="Back to top"
             className="group select-none text-left"
           >
-            <div className="font-mono text-sm tracking-[0.4em] font-black">1337</div>
-            <div className="text-[8px] text-white/55 tracking-[0.2em] uppercase transition-colors group-hover:text-[#00e5ff]">
+            <div className="font-mono text-sm font-black tracking-[0.4em]">1337</div>
+            <div className="text-[8px] uppercase tracking-[0.2em] text-white/55 transition-colors group-hover:text-[#00ff9f]">
               THE CORPORATION
             </div>
           </button>
 
-          <div className="hidden md:flex items-center gap-8 font-mono text-[10px] tracking-[0.25em]">
+          <div className="hidden items-center gap-8 font-mono text-[10px] tracking-[0.25em] md:flex">
             {navItems.map((item) => (
               <button
                 key={item.id}
                 onClick={() => goTo(item.id)}
                 aria-current={activeSection === item.id ? "true" : undefined}
-                className={`transition-all duration-300 relative py-1 uppercase ${activeSection === item.id ? "text-white font-bold" : "text-white/40 hover:text-white"
+                className={`relative py-1 uppercase transition-all duration-300 ${activeSection === item.id ? "font-bold text-white" : "text-white/55 hover:text-white"
                   }`}
               >
+                <span aria-hidden="true" className="mr-1.5 text-white/30">
+                  {item.numeral}.
+                </span>
                 {item.label}
                 {activeSection === item.id && (
                   <motion.span
                     layoutId="activeNavLine"
-                    className="absolute bottom-0 left-0 right-0 h-[1px] bg-white"
+                    className="absolute bottom-0 left-0 right-0 h-[1px] bg-[#00ff9f]"
                   />
                 )}
               </button>
@@ -864,16 +960,17 @@ export default function UltimateCorpExperience() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setTerminalOpen(true)}
-              className="flex items-center gap-2.5 px-5 py-2 rounded-full border border-white/10 hover:border-white/30 bg-white/[0.02] hover:bg-white/10 text-[9px] font-mono tracking-[0.2em] transition-all"
+              className="flex items-center gap-2.5 border border-white/10 bg-white/[0.02] px-5 py-2 font-mono text-[9px] tracking-[0.2em] transition-all hover:border-[#00ff9f]/50 hover:bg-white/5"
             >
-              <IconTerminal className="text-[#00ff88]" /> CMD
+              <IconTerminal className="text-[#00ff9f]" /> CMD
             </button>
             <button
+              ref={menuToggleRef}
               onClick={() => setMobileMenuOpen((v) => !v)}
               aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
               aria-expanded={mobileMenuOpen}
               aria-controls="mobile-menu"
-              className="md:hidden flex items-center justify-center w-9 h-9 rounded-full border border-white/10 text-white"
+              className="flex h-9 w-9 items-center justify-center border border-white/10 text-white md:hidden"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
                 {mobileMenuOpen ? (
@@ -884,6 +981,14 @@ export default function UltimateCorpExperience() {
               </svg>
             </button>
           </div>
+
+          {/* Reading progress — a phosphor hairline under the nav. */}
+          <div
+            ref={progressBarRef}
+            aria-hidden="true"
+            className="absolute bottom-[-1px] left-0 h-px w-full origin-left bg-[#00ff9f]/70"
+            style={{ transform: "scaleX(0)" }}
+          />
         </nav>
 
         {/* MOBILE NAVIGATION OVERLAY */}
@@ -898,15 +1003,18 @@ export default function UltimateCorpExperience() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               inert={terminalOpen}
-              className="fixed inset-0 z-[35] md:hidden bg-[#05050a]/95 backdrop-blur-xl flex flex-col items-center justify-center gap-8"
+              className="fixed inset-0 z-[35] flex flex-col items-center justify-center gap-8 bg-[#05050a]/95 backdrop-blur-xl md:hidden"
             >
               {navItems.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => goTo(item.id)}
-                  className={`font-mono text-lg tracking-[0.3em] uppercase transition-colors ${activeSection === item.id ? "text-white" : "text-white/50 hover:text-white"
+                  className={`font-mono text-lg uppercase tracking-[0.3em] transition-colors ${activeSection === item.id ? "text-white" : "text-white/50 hover:text-white"
                     }`}
                 >
+                  <span aria-hidden="true" className="mr-2 text-white/30">
+                    {item.numeral}.
+                  </span>
                   {item.label}
                 </button>
               ))}
@@ -915,9 +1023,9 @@ export default function UltimateCorpExperience() {
                   setMobileMenuOpen(false);
                   setTerminalOpen(true);
                 }}
-                className="mt-4 flex items-center gap-2.5 px-6 py-3 rounded-full border border-white/15 text-[11px] font-mono tracking-[0.2em]"
+                className="mt-4 flex items-center gap-2.5 border border-white/15 px-6 py-3 font-mono text-[11px] tracking-[0.2em]"
               >
-                <IconTerminal size={14} className="text-[#00ff88]" /> OPEN TERMINAL
+                <IconTerminal size={14} className="text-[#00ff9f]" /> OPEN TERMINAL
               </button>
             </motion.div>
           )}
@@ -926,175 +1034,194 @@ export default function UltimateCorpExperience() {
         {/* CORE FRAME SUBSYSTEM */}
         <main
           id="main-content"
+          tabIndex={-1}
           inert={terminalOpen || mobileMenuOpen}
-          className="relative z-20 w-full"
+          className="relative z-20 w-full outline-none"
         >
-          {/* HERO */}
+          {/* HERO — the executed command */}
           <section
             id="hero"
-            className="min-h-dvh w-full flex flex-col items-center justify-center px-6 relative pt-16 bg-black/40"
+            className="relative flex min-h-dvh w-full flex-col items-center justify-center bg-black/40 px-6 pt-16"
           >
             <h1 className="sr-only">1337 Corp — the quiet architects of what comes next.</h1>
-            <div className="text-center space-y-8 z-10">
-              <div aria-hidden="true">
+            <div className="z-10 space-y-10 text-center">
+              <div className="hero-rise" style={{ "--rise-delay": "0.1s" } as React.CSSProperties}>
+                <TypedPrompt reduced={reduced} />
+              </div>
+              <div
+                aria-hidden="true"
+                className="hero-rise"
+                style={{ "--rise-delay": "0.35s" } as React.CSSProperties}
+              >
                 <GlitchLogo />
               </div>
-              <p className="max-w-xl mx-auto font-mono text-xs md:text-sm text-white/50 tracking-wide leading-relaxed">
-                We are the quiet architects of what comes <span className="text-[#ffaa00]">next.</span>
+              <p
+                className="hero-rise mx-auto max-w-2xl text-statement font-extralight tracking-tight text-white/85"
+                style={{ "--rise-delay": "0.6s" } as React.CSSProperties}
+              >
+                The quiet architects of what comes{" "}
+                <span className="font-normal text-[#00ff9f]">next</span>.
               </p>
             </div>
             <button
               onClick={() => goTo("about")}
-              className="absolute bottom-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-[9px] font-mono tracking-[0.4em] text-white/50 animate-pulse"
+              className="absolute bottom-12 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2 font-mono text-[9px] tracking-[0.4em] text-white/50 transition-colors hover:text-white"
             >
-              DISPLACE DOWN
-              <span className="h-8 w-[1px] bg-gradient-to-b from-white/30 to-transparent mt-1" />
+              [ SCROLL ]
+              <span className="mt-1 h-8 w-[1px] bg-gradient-to-b from-white/30 to-transparent" />
             </button>
           </section>
 
           {/* CHAPTER I: ABOUT */}
           <section
             id="about"
-            className="min-h-dvh w-full flex items-center justify-center px-6 py-24 relative bg-black/40 border-b border-white/5 scroll-mt-24"
+            className="flex min-h-dvh w-full items-center justify-center border-b border-white/5 bg-black/40 px-6 py-28 scroll-mt-24"
           >
-            <div className="max-w-4xl w-full grid md:grid-cols-12 gap-12 items-center relative">
-              <div className="md:col-span-5 space-y-4">
-                <span className="font-mono text-[10px] tracking-[0.4em] text-[#00e5ff] block uppercase">
-                  CHAPTER I // COVENANT
-                </span>
-                <h2 className="text-4xl md:text-6xl font-light tracking-tight font-sans leading-none">
-                  The screen is a <span className="font-serif italic font-normal text-white/80">membrane</span>.
-                </h2>
-              </div>
-              <div className="md:col-span-7 space-y-6 font-mono text-xs md:text-sm text-white/50 leading-relaxed">
-                <p className="text-white/80 text-base font-medium font-sans border-l-2 border-[#ff2e63] pl-4">
-                  &ldquo;In the beginning there was code. And the code was with the elite, and the code{" "}
-                  <span className="text-[#ff2e63]">was</span> elite.&rdquo;
-                </p>
-                <p>
-                  Not a company. A convergence. A singularity that looked at the limits of what was
-                  possible and chose, instead, to rewrite the rules.
-                </p>
-                <p className="text-white/90 font-medium tracking-[-0.2px]">
-                  We operate where the difference between order and chaos is still something that can
-                  be negotiated.
-                </p>
+            <div className="w-full max-w-6xl">
+              <SectionHeader numeral="I" title="Covenant" index={1} />
+              <div className="grid gap-14 md:grid-cols-12 md:items-start">
+                <Reveal className="md:col-span-7">
+                  <h2 className="font-mono text-display font-medium tracking-[-0.04em] text-white">
+                    Not a company.
+                    <br />
+                    <span className="text-white/45">A convergence.</span>
+                  </h2>
+                </Reveal>
+                <div className="space-y-8 md:col-span-5">
+                  <Reveal delay={0.12}>
+                    <p className="border-l-2 border-[#00ff9f] pl-5 text-lg font-medium leading-relaxed text-white/85">
+                      &ldquo;In the beginning there was code. And the code was with the elite, and
+                      the code <span className="text-[#00ff9f]">was</span>{" "}elite.&rdquo;
+                    </p>
+                  </Reveal>
+                  <Reveal delay={0.2}>
+                    <p className="text-base leading-relaxed text-white/60">
+                      A singularity that looked at the limits of what was possible and chose,
+                      instead, to rewrite the rules.
+                    </p>
+                  </Reveal>
+                  <Reveal delay={0.28}>
+                    <p className="text-base font-medium leading-relaxed text-white/90">
+                      We operate where the difference between order and chaos is still something
+                      that can be negotiated.
+                    </p>
+                  </Reveal>
+                </div>
               </div>
             </div>
           </section>
 
-          {/* CHAPTER II: ARCHITECTURE (THE VEIL INTEGRATION) */}
+          {/* CHAPTER II: ARCHITECTURE (THE SYSTEM SCHEMATIC) */}
           <section
             id="divisions"
-            className="min-h-dvh w-full flex items-center justify-center px-6 py-24 relative bg-black/40 border-y border-white/5 overflow-hidden scroll-mt-24"
+            className="flex min-h-dvh w-full items-center justify-center overflow-hidden border-b border-white/5 bg-black/40 px-6 py-28 scroll-mt-24"
           >
-            <div className="max-w-7xl w-full grid lg:grid-cols-12 gap-12 items-center relative z-10">
-              <div className="lg:col-span-4 space-y-8">
-                <div>
-                  <span className="font-mono text-[10px] tracking-[0.4em] text-[#ff2e63] block uppercase mb-2">
-                    CHAPTER II // AN ARCHITECTURE
-                  </span>
-                  <h2 className="text-4xl md:text-5xl font-light tracking-tighter text-white font-sans">
-                    Force-multiplying.
-                  </h2>
-                </div>
+            <div className="w-full max-w-6xl">
+              <SectionHeader numeral="II" title="Architecture" index={2} />
+              <Reveal className="mb-16">
+                <h2 className="font-mono text-display font-medium tracking-[-0.04em] text-white">
+                  One system.
+                  <br />
+                  <span className="text-white/45">Four forces.</span>
+                </h2>
+              </Reveal>
 
-                <div className="space-y-3">
-                  {divisions.map((div, index) => {
-                    const isSelected = currentDivIndex === index;
-                    return (
-                      <button
-                        key={div.id}
-                        data-interactive
-                        onClick={() => cycleDivision(index)}
-                        className={`w-full text-left p-5 rounded-xl border font-mono transition-all duration-300 flex items-center justify-between ${isSelected
-                          ? "bg-white/[0.03] border-white/20 shadow-xl"
-                          : "bg-transparent border-white/5 opacity-40 hover:opacity-80"
-                          }`}
-                        style={{ borderColor: isSelected ? div.color : undefined }}
+              <div className="grid items-center gap-14 lg:grid-cols-12">
+                <Reveal className="lg:col-span-7">
+                  <Schematic
+                    divisions={divisions}
+                    activeIndex={currentDivIndex}
+                    onSelect={cycleDivision}
+                    core={
+                      <div
+                        ref={coreRef}
+                        onMouseMove={handleVeilMouseMove}
+                        onClick={triggerCorePulseDirectly}
+                        aria-hidden="true"
+                        className="absolute inset-0 cursor-crosshair overflow-hidden rounded-full"
                       >
-                        <div className="flex items-center gap-4">
-                          <div
-                            className="w-8 h-8 rounded-lg flex items-center justify-center border border-white/10"
-                            style={{ color: div.color }}
-                          >
-                            {div.icon}
+                        {coreEnabled ? (
+                          <Suspense fallback={<CoreFallback color={activeDivision.color} />}>
+                            <VeilCanvas
+                              mouse={vMouse}
+                              pulseTrigger={pulseTrigger}
+                              activeColor={activeDivision.color}
+                              frameloop={coreInView ? "always" : "never"}
+                            />
+                          </Suspense>
+                        ) : (
+                          <CoreFallback color={activeDivision.color} />
+                        )}
+                      </div>
+                    }
+                  />
+                  <p className="mt-6 text-center font-mono text-[9px] uppercase tracking-[0.3em] text-white/30">
+                    FIG. 01 — the system{coreEnabled ? " · click the core to echo" : ""}
+                  </p>
+                </Reveal>
+
+                <div className="lg:col-span-5">
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={activeDivision.id}
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      transition={{ duration: 0.4, ease: "easeOut" }}
+                      className="space-y-7"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span
+                          className="flex h-8 w-8 items-center justify-center border border-white/10"
+                          style={{ color: activeDivision.color }}
+                        >
+                          {activeDivision.icon}
+                        </span>
+                        <div>
+                          <div className="font-mono text-lg font-bold tracking-[0.14em] text-white">
+                            {activeDivision.name}
                           </div>
-                          <div>
-                            <div className="text-white text-sm font-bold tracking-wider">{div.name}</div>
-                            <div className="text-[9px] text-white/55 tracking-widest uppercase mt-0.5">
-                              {div.codename}
-                            </div>
+                          <div className="font-mono text-[9px] uppercase tracking-[0.24em] text-white/45">
+                            {activeDivision.codename}
                           </div>
                         </div>
-                        <IconChevron
-                          className={`transition-transform duration-300 ${isSelected ? "rotate-90 text-white" : "text-white/20"
-                            }`}
-                        />
-                      </button>
-                    );
-                  })}
+                      </div>
+
+                      <div
+                        className="inline-block border px-3 py-1 font-mono text-[9px] font-bold tracking-widest"
+                        style={{
+                          color: activeDivision.color,
+                          borderColor: `${activeDivision.color}55`,
+                        }}
+                      >
+                        {activeDivision.accessLevel}
+                      </div>
+
+                      <p className="text-xl font-extralight leading-snug tracking-tight text-white/90 md:text-2xl">
+                        {activeDivision.tagline}
+                      </p>
+
+                      <p className="text-sm leading-relaxed text-white/65">
+                        {activeDivision.description}
+                      </p>
+
+                      <p className="border-l border-white/15 pl-4 text-[13px] leading-relaxed text-white/50">
+                        {activeDivision.lore}
+                      </p>
+
+                      <div className="flex flex-wrap gap-2 border-t border-white/10 pt-5">
+                        {activeDivision.metric.split(" • ").map((capability) => (
+                          <span
+                            key={capability}
+                            className="border border-white/10 px-2.5 py-1 font-mono text-[10px] tracking-wide text-white/70"
+                          >
+                            {capability}
+                          </span>
+                        ))}
+                      </div>
+                    </motion.div>
+                  </AnimatePresence>
                 </div>
-              </div>
-
-              <div
-                ref={coreRef}
-                className="lg:col-span-4 h-[350px] md:h-[450px] w-full relative cursor-crosshair group rounded-3xl"
-                onMouseMove={handleVeilMouseMove}
-                onClick={triggerCorePulseDirectly}
-                aria-hidden="true"
-              >
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/[0.01] to-transparent rounded-3xl pointer-events-none border border-white/5" />
-                {coreEnabled ? (
-                  <VeilCanvas
-                    mouse={vMouse}
-                    pulseTrigger={pulseTrigger}
-                    activeColor={activeDivision.color}
-                    frameloop={coreInView ? "always" : "never"}
-                  />
-                ) : (
-                  <CoreFallback color={activeDivision.color} />
-                )}
-                {coreEnabled && (
-                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 font-mono text-[8px] text-white/30 tracking-[3px] uppercase pointer-events-none animate-pulse">
-                    Click Core to Echo Pattern
-                  </div>
-                )}
-              </div>
-
-              <div className="lg:col-span-4 space-y-6">
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={activeDivision.id}
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.4, ease: "easeOut" }}
-                    className="space-y-6"
-                  >
-                    <div
-                      className="inline-block px-3 py-1 rounded bg-white/5 border border-white/10 font-mono text-[9px] tracking-widest font-bold"
-                      style={{ color: activeDivision.color }}
-                    >
-                      {activeDivision.accessLevel}
-                    </div>
-
-                    <h3
-                      className="font-serif text-xl md:text-2xl italic text-white/90 leading-snug border-l-2 pl-4"
-                      style={{ borderColor: activeDivision.color }}
-                    >
-                      &ldquo;{activeDivision.tagline}&rdquo;
-                    </h3>
-
-                    <p className="font-mono text-xs text-white/60 leading-relaxed bg-white/[0.01] border border-white/5 p-5 rounded-xl">
-                      {activeDivision.lore}
-                    </p>
-
-                    <div className="pt-4 border-t border-white/5 font-mono text-[10px]">
-                      <span className="text-white/80">{activeDivision.metric}</span>
-                    </div>
-                  </motion.div>
-                </AnimatePresence>
               </div>
             </div>
           </section>
@@ -1102,33 +1229,40 @@ export default function UltimateCorpExperience() {
           {/* CHAPTER III: SPECTRUM */}
           <section
             id="spectrum"
-            className="min-h-dvh w-full flex items-center justify-center px-6 py-24 relative bg-black/40 border-b border-white/5 scroll-mt-24"
+            className="flex min-h-dvh w-full items-center justify-center border-b border-white/5 bg-black/40 px-6 py-28 scroll-mt-24"
           >
-            <div className="max-w-6xl w-full space-y-16">
-              <div className="text-center space-y-3">
-                <span className="font-mono text-[10px] tracking-[0.4em] text-[#8b7cff] block uppercase">
-                  CHAPTER III // THREE-EYED
-                </span>
-                <h2 className="text-4xl md:text-6xl font-light tracking-tight font-sans">The Vision.</h2>
-              </div>
-              <div className="grid md:grid-cols-3 gap-6">
-                {operatives.map((op) => (
-                  <div
-                    key={op.id}
-                    className="operative-card border border-white/5 bg-[#07070c]/40 backdrop-blur-sm p-8 rounded-2xl flex flex-col justify-between space-y-8 hover:border-white/10 transition-all duration-300"
-                  >
-                    <div className="space-y-4">
-                      <div>
-                        <h4 className="text-xl font-bold font-sans tracking-tight text-white">
-                          {op.callsign}
-                        </h4>
-                        <p className="text-xs font-mono text-white/40 mt-0.5">{op.role}</p>
+            <div className="w-full max-w-6xl">
+              <SectionHeader numeral="III" title="Spectrum" index={3} />
+              <Reveal className="mb-20">
+                <h2 className="font-mono text-display font-medium tracking-[-0.04em] text-white">
+                  The vision.
+                </h2>
+              </Reveal>
+
+              <div>
+                {principles.map((principle, i) => (
+                  <Reveal key={principle.id} delay={i * 0.12}>
+                    <div
+                      className={`group grid gap-4 border-t border-white/10 py-10 transition-colors duration-300 hover:bg-white/[0.015] md:grid-cols-12 md:items-baseline md:gap-8 ${i === principles.length - 1 ? "border-b" : ""
+                        }`}
+                    >
+                      <span className="font-mono text-xs tracking-[0.3em] text-white/30 md:col-span-1">
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
+                      <h3 className="font-mono text-3xl font-semibold tracking-[-0.03em] text-white md:col-span-5 md:text-5xl">
+                        {principle.callsign}
+                        <span className="ml-1 inline-block h-[0.72em] w-[0.4em] bg-[#00ff9f] opacity-0 transition-opacity duration-300 group-hover:opacity-80" />
+                      </h3>
+                      <div className="space-y-3 md:col-span-6">
+                        <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-white/55">
+                          {principle.role}
+                        </div>
+                        <p className="text-lg font-light leading-relaxed text-white/75">
+                          {principle.quote}
+                        </p>
                       </div>
                     </div>
-                    <p className="font-mono text-xs text-white/70 italic leading-relaxed border-l border-white/20 pl-4">
-                      “{op.quote}”
-                    </p>
-                  </div>
+                  </Reveal>
                 ))}
               </div>
             </div>
@@ -1137,36 +1271,114 @@ export default function UltimateCorpExperience() {
           {/* CHAPTER IV: CONTACT */}
           <section
             id="contact"
-            className="min-h-dvh w-full flex items-center justify-center px-6 py-24 border-t border-white/5 relative bg-gradient-to-b from-black/40 to-black/80 scroll-mt-24"
+            className="flex min-h-dvh w-full items-center justify-center border-t border-white/5 bg-gradient-to-b from-black/40 to-black/80 px-6 py-28 scroll-mt-24"
           >
-            <div className="max-w-3xl w-full text-center space-y-8 relative">
-              <div className="space-y-2">
-                <span className="font-mono text-[10px] tracking-[0.5em] text-[#c5a26f] block uppercase">
-                  CHAPTER IV // TRANSMISSION
-                </span>
-                <h2 className="text-5xl md:text-8xl font-black tracking-tight font-sans">THE SIGNAL.</h2>
-              </div>
-              <p className="font-mono text-xs md:text-sm text-white/50 max-w-xl mx-auto leading-relaxed">
-                For serious inquiries, aligned collaborations, or opportunities that fit the work, use
-                the terminal.
-              </p>
-              <div className="pt-4 space-y-4">
-                <button
-                  onClick={() => setTerminalOpen(true)}
-                  className="font-mono text-[11px] tracking-[0.3em] border border-white/20 hover:border-white bg-transparent hover:bg-white hover:text-black px-8 py-4 transition-all duration-500 flex items-center gap-3 mx-auto"
-                >
-                  <IconTerminal size={14} /> OPEN CONTACT
-                </button>
+            <div className="w-full max-w-6xl">
+              <SectionHeader numeral="IV" title="Transmission" index={4} />
+              <div className="space-y-12 text-center">
+                <Reveal>
+                  <h2 className="font-mono text-display font-semibold tracking-[-0.04em] text-white">
+                    THE SIGNAL<span className="text-[#00ff9f]">.</span>
+                  </h2>
+                </Reveal>
+                <Reveal delay={0.12}>
+                  <p className="mx-auto max-w-xl text-base leading-relaxed text-white/60">
+                    For serious inquiries, aligned collaborations, or opportunities that fit the
+                    work, use the terminal.
+                  </p>
+                </Reveal>
+                <Reveal delay={0.2}>
+                  <div className="space-y-5">
+                    <button
+                      onClick={() => setTerminalOpen(true)}
+                      className="mx-auto flex items-center gap-3 border border-white/20 px-8 py-5 font-mono text-sm transition-all duration-300 hover:border-[#00ff9f]/60 hover:bg-white/[0.03]"
+                    >
+                      <span className="text-[#00ff9f]">guest@1337:~$</span>
+                      <span className="text-white">contact</span>
+                      <span
+                        aria-hidden="true"
+                        className="caret-blink inline-block h-4 w-2 bg-[#00ff9f]/80"
+                      />
+                    </button>
+                    <div className="font-mono text-[9px] tracking-[0.3em] text-white/50">
+                      [ / ] TERMINAL&ensp;·&ensp;[ CTRL/⌘ K ] COMMAND
+                    </div>
+                  </div>
+                </Reveal>
               </div>
             </div>
           </section>
         </main>
 
+        {/* THE TITLE BLOCK — an engineering sheet signs itself. */}
         <footer
           inert={terminalOpen || mobileMenuOpen}
-          className="relative z-30 border-t border-white/5 bg-[#030307]/80 py-8 text-center font-mono text-[9px] tracking-[0.2em] text-white/50"
+          className="relative z-30 border-t border-white/10 bg-[#030307]/80"
         >
-          <div>2026 • 1337</div>
+          <div className="mx-auto grid max-w-6xl gap-12 px-6 py-16 md:grid-cols-12">
+            <div className="space-y-4 md:col-span-5">
+              <div>
+                <div className="font-mono text-2xl font-black tracking-[0.3em] text-white">1337</div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.3em] text-white/40">
+                  THE CORPORATION
+                </div>
+              </div>
+              <p className="max-w-xs text-sm leading-relaxed text-white/50">
+                The quiet architects of what comes next.
+              </p>
+            </div>
+
+            <nav aria-label="Chapters" className="md:col-span-3">
+              <div className="mb-4 font-mono text-[9px] uppercase tracking-[0.3em] text-white/35">
+                CHAPTERS
+              </div>
+              <ul className="space-y-2.5">
+                {navItems.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      onClick={() => goTo(item.id)}
+                      className="font-mono text-[11px] tracking-[0.2em] text-white/60 transition-colors hover:text-white"
+                    >
+                      <span aria-hidden="true" className="mr-2 text-white/30">
+                        {item.numeral}.
+                      </span>
+                      {item.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+
+            <div className="md:col-span-2">
+              <div className="mb-4 font-mono text-[9px] uppercase tracking-[0.3em] text-white/35">
+                SIGNAL
+              </div>
+              <button
+                onClick={() => setTerminalOpen(true)}
+                className="flex items-center gap-2 font-mono text-[11px] tracking-[0.2em] text-white/60 transition-colors hover:text-white"
+              >
+                <IconTerminal className="text-[#00ff9f]" /> TERMINAL
+              </button>
+            </div>
+
+            <dl className="space-y-2.5 border-white/10 md:col-span-2 md:border-l md:pl-6">
+              {SHEET_META.map((row) => (
+                <div key={row.label} className="flex items-baseline justify-between gap-3">
+                  <dt className="font-mono text-[9px] tracking-[0.2em] text-white/35">{row.label}</dt>
+                  <dd className="font-mono text-[10px] tracking-[0.15em] text-white/65">
+                    {row.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+
+          <div className="border-t border-white/5">
+            <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5 font-mono text-[9px] tracking-[0.2em] text-white/40">
+              <span>© MMXXVI 1337 CORP.</span>
+              <span className="text-white/25">1337.CD</span>
+            </div>
+          </div>
         </footer>
 
         <Terminal

@@ -12,11 +12,15 @@ import { PLATES } from "../app/shell";
 const ROOT = join(__dirname, "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 
-/** Every first-party source file under app/, so new files can't dodge a lock. */
+/**
+ * Every first-party source file under app/ plus the root build configs, so
+ * new files can't dodge a lock and the sweeps really cover the whole tree.
+ */
 const appFiles = readdirSync(join(ROOT, "app"), { recursive: true })
   .map(String)
   .filter((f) => /\.(ts|tsx|css)$/.test(f))
-  .map((f) => `app/${f}`);
+  .map((f) => `app/${f}`)
+  .concat(["next.config.ts", "postcss.config.mjs", "eslint.config.mjs"]);
 
 describe("dead weight stays dead — across the WHOLE tree", () => {
   it("no first-party module imports the removed dependencies", () => {
@@ -66,6 +70,61 @@ describe("the terminal is wired to the shell", () => {
       expect(page, `section #${plate.slug} exists`).toContain(`id="${plate.slug}"`);
     }
     expect(page).toContain('id="hero"');
+  });
+});
+
+describe("the schematic sheet holds its structure", () => {
+  it("the whole tree runs exactly one ambient background canvas", () => {
+    // The old dual-canvas particle layer stays dead: one SignalField only.
+    // (Case-sensitive on purpose: r3f's <Canvas> is the 3D core, not an
+    // ambient 2D layer.)
+    const total = appFiles
+      .map((rel) => (read(rel).match(/<canvas\b/g) ?? []).length)
+      .reduce((a, b) => a + b, 0);
+    expect(total).toBe(1);
+  });
+
+  it("the schematic and the terminal are wired into the page", () => {
+    const page = read("app/page.tsx");
+    expect(page).toMatch(/from ["']\.\/Schematic["']/);
+    expect(page).toContain("<Schematic");
+    expect(page).toContain("divisions={divisions}");
+    expect(page).toContain("<Terminal");
+    expect(page).toContain("onNavigate={navigate}");
+  });
+
+  it("the production divisions data seats the schematic geometry exactly", () => {
+    // Schematic throws on any count other than its seat count; a fifth
+    // division added to the page data must fail HERE, not in production.
+    const dataEntries = read("app/page.tsx").match(/codename: "/g) ?? [];
+    const seats = read("app/Schematic.tsx").match(/trace: "M /g) ?? [];
+    expect(seats).toHaveLength(4);
+    expect(dataEntries).toHaveLength(seats.length);
+  });
+
+  it("reveal styles can only hide content behind the JS arming class", () => {
+    // No-JS readers and crawlers must always get a fully visible page: any
+    // selector that styles [data-reveal] must be scoped under the class the
+    // page adds after hydration. Parsed brace-agnostically so formatting
+    // (brace on next line, @media wrapping, [data-reveal=""] forms) cannot
+    // smuggle an unscoped rule past the lock.
+    const css = read("app/globals.css").replace(/\/\*[\s\S]*?\*\//g, "");
+    const selectors = css
+      .split("{")
+      .slice(0, -1)
+      .map((chunk) => chunk.slice(chunk.lastIndexOf("}") + 1).trim())
+      .filter((selector) => selector.includes("[data-reveal"));
+    expect(selectors.length).toBeGreaterThan(0);
+    for (const selector of selectors) {
+      expect(selector, `unscoped reveal selector: ${selector}`).toContain("html.reveal-armed");
+    }
+  });
+
+  it("both terminal exhaustiveness locks are present", () => {
+    // One for the effect switch, one for lineClass — deleting either is a
+    // regression even while the other still satisfies a naive grep.
+    const terminal = read("app/Terminal.tsx");
+    expect(terminal.match(/const unhandled: never/g)).toHaveLength(2);
   });
 });
 
