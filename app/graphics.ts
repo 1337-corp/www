@@ -1,9 +1,9 @@
 // Pure graphics helpers shared between the page shell and the lazily-loaded
 // 3D canvas. Kept dependency-free so importing them never pulls in three.js.
 
-// Deterministic hash in [0, 1). Used in place of Math.random() so anything
-// computed during render stays pure (react-hooks/purity) and stable across
-// re-renders and SSR — no hydration drift, no memo-recompute geometry desync.
+// Deterministic hash in [0, 1). The site's only source of "randomness", so
+// anything computed during render stays pure (react-hooks/purity) and stable
+// across re-renders and SSR — no hydration drift, no geometry desync.
 export function hash01(n: number): number {
   const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
   return x - Math.floor(x);

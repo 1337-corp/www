@@ -14,6 +14,12 @@ html {
   background: #05050a;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
 body {
   background: #05050a;
   color: #ededed;
@@ -28,6 +34,34 @@ body {
 .cursor-none,
 .cursor-none * {
   cursor: none !important;
+}
+
+/* Focus is always visible — a cyan signal ring on the dark ground. */
+:focus-visible {
+  outline: 1px solid rgba(0, 229, 255, 0.9);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(0, 229, 255, 0.12);
+  border-radius: 2px;
+}
+
+/* A fine instrument, not a default scrollbar. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 229, 255, 0.45);
 }
 
 /*

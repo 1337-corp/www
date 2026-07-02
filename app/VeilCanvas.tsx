@@ -2,14 +2,41 @@
 
 import React, { useRef, useEffect, useMemo } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Stars } from "@react-three/drei";
 import * as THREE from "three";
 import { hash01 } from "./graphics";
 import CoreFallback from "./CoreFallback";
 
-// This module is loaded on demand via next/dynamic, so three.js + drei stay out
-// of the initial page bundle and only download when the site is actually able
-// to render the 3D core.
+// This module is loaded on demand via next/dynamic, so three.js stays out
+// of the initial page bundle and only downloads when the site is actually
+// able to render the 3D core.
+
+// =========================================================================
+// FAR FIELD — a sparse seeded starfield (replaces the old drei <Stars>
+// with a dependency-free, deterministic shell of points).
+// =========================================================================
+function FarField() {
+  const positions = useMemo(() => {
+    const count = 60;
+    const arr = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const radius = 70 + hash01(i * 3.1) * 30;
+      const theta = hash01(i * 7.7) * Math.PI * 2;
+      const phi = Math.acos(2 * hash01(i * 13.3) - 1);
+      arr[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+      arr[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+      arr[i * 3 + 2] = radius * Math.cos(phi);
+    }
+    return arr;
+  }, []);
+  return (
+    <points>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+      </bufferGeometry>
+      <pointsMaterial size={0.5} color="#ffffff" transparent opacity={0.5} depthWrite={false} sizeAttenuation />
+    </points>
+  );
+}
 
 // =========================================================================
 // THE VEIL CRUCIBLE: 3D THREE.JS QUANTUM INTEGRATION
@@ -19,7 +46,7 @@ function TheVeilCore({
   pulseTrigger,
   activeColor,
 }: {
-  mouse: React.MutableRefObject<{ x: number; y: number }>;
+  mouse: React.RefObject<{ x: number; y: number }>;
   pulseTrigger: number;
   activeColor: string;
 }) {
@@ -36,7 +63,7 @@ function TheVeilCore({
     const homes = new Float32Array(particleCount * 3);
     for (let i = 0; i < particleCount; i++) {
       const i3 = i * 3;
-      // Deterministic pseudo-random placement — render-pure, no Math.random().
+      // Deterministic pseudo-random placement — render-pure, no unseeded source.
       const radiusBase = 2.4 + (i % 4) * 0.5 + (hash01(i + 11) - 0.5) * 0.3;
       const theta = hash01(i + 29) * Math.PI * 2;
       const phi = Math.acos(2 * hash01(i + 47) - 1) * 0.8;
@@ -58,7 +85,8 @@ function TheVeilCore({
     if (pulseTrigger > 0 && particlesRef.current) {
       pulseRef.current = 1.0;
       const velocities = velocitiesRef.current;
-      const posArr = (particlesRef.current.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
+      const posArr = (particlesRef.current.geometry.attributes.position as THREE.BufferAttribute)
+        .array as Float32Array;
       for (let i = 0; i < particleCount; i++) {
         const i3 = i * 3;
         const len = Math.sqrt(posArr[i3] ** 2 + posArr[i3 + 1] ** 2 + posArr[i3 + 2] ** 2) || 1;
@@ -87,8 +115,16 @@ function TheVeilCore({
       icoRef.current.rotation.y = -time * 0.25;
     }
 
-    groupRef.current.position.x = THREE.MathUtils.lerp(groupRef.current.position.x, mouse.current.x * 2.5, 0.05);
-    groupRef.current.position.y = THREE.MathUtils.lerp(groupRef.current.position.y, mouse.current.y * 2.0, 0.05);
+    groupRef.current.position.x = THREE.MathUtils.lerp(
+      groupRef.current.position.x,
+      mouse.current.x * 2.5,
+      0.05
+    );
+    groupRef.current.position.y = THREE.MathUtils.lerp(
+      groupRef.current.position.y,
+      mouse.current.y * 2.0,
+      0.05
+    );
 
     for (let i = 0; i < particleCount; i++) {
       const i3 = i * 3;
@@ -116,7 +152,7 @@ function TheVeilCore({
 
   return (
     <group ref={groupRef}>
-      <Stars radius={80} depth={30} count={60} factor={2} saturation={0} fade speed={0.2} />
+      <FarField />
       <mesh ref={knotRef}>
         <torusKnotGeometry args={[1.5, 0.22, 120, 16, 3, 4]} />
         <meshPhongMaterial color="#c5a26f" emissive="#111118" shininess={40} wireframe />
@@ -152,6 +188,9 @@ class CanvasErrorBoundary extends React.Component<
   static getDerivedStateFromError() {
     return { hasError: true };
   }
+  componentDidCatch(error: unknown) {
+    console.error("veil core: live scene failed, using fallback —", error);
+  }
   render() {
     return this.state.hasError ? this.props.fallback : this.props.children;
   }
@@ -166,7 +205,7 @@ export default function VeilCanvas({
   activeColor,
   frameloop,
 }: {
-  mouse: React.MutableRefObject<{ x: number; y: number }>;
+  mouse: React.RefObject<{ x: number; y: number }>;
   pulseTrigger: number;
   activeColor: string;
   // "never" pauses all rendering when the core is scrolled out of view.
