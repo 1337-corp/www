@@ -98,9 +98,11 @@ interface Ripple {
 
 const TAU = Math.PI * 2;
 
-// The hero's rotation: the wordmark leads, then the corp's sigils while
-// the visitor stays close. Rendered type, sampled to dust seats.
-const GLYPHS = ["1337", "{ }", ">_", "$"] as const;
+// The hero's rotation: the wordmark leads, then one sigil per division —
+// { } SOFTWARE, $ CAPITAL, λ RESEARCH (the lab's letter), & VENTURES —
+// closing on the terminal prompt, the corp's standing invitation to make
+// contact. Rendered type, sampled to dust seats.
+const GLYPHS = ["1337", "{ }", "$", "λ", "&", ">_"] as const;
 const GLYPH_FONT_PX = 300;
 /** Frames a glyph holds before rotating to the next (~5.5 s). */
 const GLYPH_HOLD_FRAMES = 330;

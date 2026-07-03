@@ -675,7 +675,7 @@ export default function UltimateCorpExperience() {
             className="relative flex min-h-dvh w-full flex-col items-center justify-end bg-black/40 px-6 pb-36 pt-16 md:pb-40"
           >
             <h1 className="sr-only">1337 Corp — the quiet architects of what comes next.</h1>
-            <div className="z-10 space-y-6 text-center">
+            <div className="z-10 text-center">
               <p
                 className="hero-rise mx-auto max-w-2xl text-statement font-extralight tracking-tight text-white/85"
                 style={{ "--rise-delay": "0.4s" } as React.CSSProperties}
@@ -683,14 +683,6 @@ export default function UltimateCorpExperience() {
                 The quiet architects of what comes{" "}
                 <span className="font-normal text-[#00ff9f]">next</span>.
               </p>
-              <div
-                className="hero-rise flex items-center justify-center gap-3 font-mono text-[9px] uppercase tracking-[0.45em] text-white/40"
-                style={{ "--rise-delay": "0.7s" } as React.CSSProperties}
-              >
-                <span aria-hidden="true" className="h-1 w-1 bg-[#00ff9f]/70" />
-                APPROACH THE SIGNAL
-                <span aria-hidden="true" className="h-1 w-1 bg-[#00ff9f]/70" />
-              </div>
             </div>
             <button
               onClick={() => goTo("about")}
