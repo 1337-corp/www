@@ -99,11 +99,63 @@ interface Ripple {
 const TAU = Math.PI * 2;
 
 // The hero's rotation: the wordmark leads, then one sigil per division —
-// { } SOFTWARE, $ CAPITAL, λ RESEARCH (the lab's letter), & VENTURES —
-// closing on the terminal prompt, the corp's standing invitation to make
-// contact. Rendered type, sampled to dust seats.
-const GLYPHS = ["1337", "{ }", "$", "λ", "&", ">_"] as const;
+// { } SOFTWARE, $ CAPITAL, λ RESEARCH (the lab's letter), and a drawn
+// compass for VENTURES (an instrument for unmapped territory) — closing
+// on the terminal prompt, the corp's standing invitation to make contact.
+// Text sigils are rendered type; the compass is stroked as vectors. Both
+// are sampled to dust seats the same way.
+type Glyph = { kind: "text"; text: string } | { kind: "compass" };
+const GLYPHS: readonly Glyph[] = [
+  { kind: "text", text: "1337" },
+  { kind: "text", text: "{ }" },
+  { kind: "text", text: "$" },
+  { kind: "text", text: "λ" },
+  { kind: "compass" },
+  { kind: "text", text: ">_" },
+];
 const GLYPH_FONT_PX = 300;
+
+/**
+ * The VENTURES sigil: a compass — ring, cardinal bearing marks, and a
+ * needle pointing north-east into the unmapped. Stroke weights are sized
+ * so every feature survives the dot-pitch sampling at phone scale.
+ */
+const drawCompassGlyph = (
+  g2: CanvasRenderingContext2D,
+  cx: number,
+  cy: number
+): { tw: number; th: number } => {
+  const r = 205;
+  g2.strokeStyle = "#fff";
+  g2.fillStyle = "#fff";
+  g2.lineWidth = 34;
+  g2.beginPath();
+  g2.arc(cx, cy, r, 0, Math.PI * 2);
+  g2.stroke();
+  for (let k = 0; k < 4; k++) {
+    const ta = (k * Math.PI) / 2;
+    g2.beginPath();
+    g2.moveTo(cx + Math.cos(ta) * (r - 64), cy + Math.sin(ta) * (r - 64));
+    g2.lineTo(cx + Math.cos(ta) * (r - 32), cy + Math.sin(ta) * (r - 32));
+    g2.stroke();
+  }
+  // The needle: an elongated diamond on the NE–SW axis.
+  const a = -Math.PI / 4;
+  const len = r * 0.68;
+  const wid = r * 0.18;
+  const ca = Math.cos(a);
+  const sa = Math.sin(a);
+  const cp = Math.cos(a + Math.PI / 2);
+  const sp = Math.sin(a + Math.PI / 2);
+  g2.beginPath();
+  g2.moveTo(cx + ca * len, cy + sa * len);
+  g2.lineTo(cx + cp * wid, cy + sp * wid);
+  g2.lineTo(cx - ca * len, cy - sa * len);
+  g2.lineTo(cx - cp * wid, cy - sp * wid);
+  g2.closePath();
+  g2.fill();
+  return { tw: r * 2 + 34, th: r * 2 + 34 };
+};
 /** Frames a glyph holds before rotating to the next (~5.5 s). */
 const GLYPH_HOLD_FRAMES = 330;
 
@@ -317,23 +369,29 @@ const SignalField: React.FC<{
       // The wordmark spans the hero column; the sigils match its cap
       // height so the rotation never jumps in visual weight.
       let wordH = wordW * 0.28;
-      const pts: { rx: number; ry: number }[][] = GLYPHS.map((text, gi) => {
+      const pts: { rx: number; ry: number }[][] = GLYPHS.map((glyph, gi) => {
         sampler.width = SW;
         sampler.height = SH;
-        g2.font = font;
-        g2.textAlign = "center";
-        g2.textBaseline = "middle";
-        g2.fillStyle = "#fff";
-        const met = g2.measureText(text);
-        const tw = Math.max(met.width, 1);
-        const th = Math.max(
-          (met.actualBoundingBoxAscent || GLYPH_FONT_PX * 0.72) +
-            (met.actualBoundingBoxDescent || GLYPH_FONT_PX * 0.08),
-          1
-        );
+        let tw: number;
+        let th: number;
+        if (glyph.kind === "compass") {
+          ({ tw, th } = drawCompassGlyph(g2, SW / 2, SH / 2));
+        } else {
+          g2.font = font;
+          g2.textAlign = "center";
+          g2.textBaseline = "middle";
+          g2.fillStyle = "#fff";
+          const met = g2.measureText(glyph.text);
+          tw = Math.max(met.width, 1);
+          th = Math.max(
+            (met.actualBoundingBoxAscent || GLYPH_FONT_PX * 0.72) +
+              (met.actualBoundingBoxDescent || GLYPH_FONT_PX * 0.08),
+            1
+          );
+          g2.fillText(glyph.text, SW / 2, SH / 2);
+        }
         const scale = gi === 0 ? wordW / tw : Math.min((wordH * 1.25) / th, wordW / tw);
         if (gi === 0) wordH = th * scale;
-        g2.fillText(text, SW / 2, SH / 2);
 
         // Seat pitch ~5.5–8 px on screen keeps stroke weight consistent
         // across viewport sizes and glyph shapes — wide enough that seated
@@ -873,8 +931,11 @@ const SignalField: React.FC<{
 
         // Seated specks converge on a small fixed pixel so the mark reads
         // as a crisp dot matrix; loose dust keeps its heat-swollen size.
+        // The seated pixel is big enough that its interior survives edge
+        // antialiasing — smaller cores blend into the ground and read as
+        // a duller green than the brand's.
         const dustHalf = s.size * (0.78 + 0.5 * s.depth) * (1 + heat * 1.5) * sizeScale;
-        const seatHalf = 1.05 + lock * 0.65;
+        const seatHalf = 1.3 + lock * 0.7;
         const half = dustHalf * (1 - mwS) + seatHalf * mwS;
         // The mark is always phosphor — cyan minority specks recolor while
         // seated, or the glyph reads as noise instead of brand.
@@ -911,6 +972,15 @@ const SignalField: React.FC<{
           ctx.stroke();
         } else {
           if (alpha < 0.015) continue;
+          if (mwS > 0.5 && lock > 0.3) {
+            // Locked dots get a faint phosphor bloom under the core — the
+            // CRT glow that keeps the mark reading as full brand green.
+            const bloom = half * (2.2 + lock);
+            ctx.globalAlpha = Math.min(1, alpha) * 0.16 * lock;
+            ctx.fillStyle = PHOSPHOR_RAMP[RAMP_STEPS];
+            ctx.fillRect(x - bloom, y - bloom, bloom * 2, bloom * 2);
+            ctx.globalAlpha = Math.min(1, alpha);
+          }
           ctx.fillStyle = ramp[rampIndex(drawHeat)];
           ctx.fillRect(x - half, y - half, half * 2, half * 2);
         }
