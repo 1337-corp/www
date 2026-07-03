@@ -245,115 +245,6 @@ const CaretCursor: React.FC = () => {
 };
 
 // =========================================================================
-// COMPONENT: GLITCH WORDMARK
-// =========================================================================
-const GlitchLogo: React.FC = () => {
-  const [isGlitching, setIsGlitching] = useState(false);
-  const glitchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reduced = useReducedMotionSafe();
-
-  const triggerGlitch = () => {
-    // The chromatic flash is motion; reduced-motion readers never see it.
-    if (reduced) return;
-    // Re-triggering restarts the window instead of letting the earlier
-    // timer cut the new flash short.
-    if (glitchTimer.current) clearTimeout(glitchTimer.current);
-    setIsGlitching(true);
-    glitchTimer.current = setTimeout(() => setIsGlitching(false), 380);
-  };
-
-  useEffect(
-    () => () => {
-      if (glitchTimer.current) clearTimeout(glitchTimer.current);
-    },
-    []
-  );
-
-  const markClass = "font-mono text-display-xl font-semibold tracking-[-0.06em]";
-
-  return (
-    <div
-      className="group relative inline-block cursor-pointer select-none text-center"
-      onMouseEnter={triggerGlitch}
-      onClick={triggerGlitch}
-    >
-      <div className="relative mx-auto inline-block">
-        <div
-          className={`${markClass} text-white transition-all duration-75 ${isGlitching ? "opacity-90" : ""}`}
-          style={{
-            fontFeatureSettings: '"tnum"',
-            textShadow: isGlitching
-              ? "3px 0 #ff2e63, -3px 0 #00e5ff"
-              : "0 0 60px rgba(0, 255, 159, 0.1)",
-          }}
-        >
-          1337
-        </div>
-        {/* Chromatic-aberration flash — CRT physics, not palette. */}
-        {isGlitching && (
-          <>
-            <div
-              className={`${markClass} absolute left-0 top-0 text-[#ff2e63] opacity-80`}
-              style={{ transform: "translate(-2px, 1px)", clipPath: "inset(0 0 40% 0)" }}
-            >
-              1337
-            </div>
-            <div
-              className={`${markClass} absolute left-0 top-0 text-[#00e5ff] opacity-80`}
-              style={{ transform: "translate(2px, -1px)", clipPath: "inset(40% 0 0 0)" }}
-            >
-              1337
-            </div>
-          </>
-        )}
-        <div className="absolute -bottom-2 right-1 font-mono text-[11px] font-bold tracking-[7px] text-white/50">
-          CORP.
-        </div>
-      </div>
-      <div className="mx-auto mt-6 h-px w-20 bg-[#00ff9f] opacity-40 transition-all duration-500 group-hover:w-32 group-hover:opacity-90" />
-    </div>
-  );
-};
-
-// =========================================================================
-// COMPONENT: TYPED PROMPT — the hero's opening keystroke. SSR renders the
-// finished line (crawlers and no-JS readers see everything); after
-// hydration it re-types once, motion permitting. Decorative: aria-hidden.
-// =========================================================================
-const TYPED_COMMAND = "cd 1337.cd";
-
-const TypedPrompt: React.FC<{ reduced: boolean }> = ({ reduced }) => {
-  const [typed, setTyped] = useState(TYPED_COMMAND);
-
-  useEffect(() => {
-    if (reduced) return;
-    // The first tick clears the SSR-painted line; the rest type it back.
-    // All state changes happen inside the timer callback, never in the
-    // effect body itself.
-    let i = -1;
-    const interval = setInterval(() => {
-      i++;
-      setTyped(TYPED_COMMAND.slice(0, i));
-      if (i >= TYPED_COMMAND.length) clearInterval(interval);
-    }, 75);
-    return () => clearInterval(interval);
-  }, [reduced]);
-
-  // If the preference flips to reduced mid-animation, render the whole
-  // line — a half-typed command must never freeze on screen.
-  const shown = reduced ? TYPED_COMMAND : typed;
-
-  return (
-    <div aria-hidden="true" className="font-mono text-xs tracking-wide text-white/50 md:text-sm">
-      <span className="text-[#00ff9f]/90">guest@world</span>
-      <span className="text-white/40">:~$ </span>
-      <span className="text-white/85">{shown}</span>
-      <span className="caret-blink ml-0.5 inline-block h-[1.05em] w-[0.55em] translate-y-[0.18em] bg-[#00ff9f]/80" />
-    </div>
-  );
-};
-
-// =========================================================================
 // SCROLL-REVEAL PRIMITIVE — arms after hydration; SSR/no-JS stay visible.
 // =========================================================================
 const Reveal: React.FC<{
@@ -774,30 +665,32 @@ export default function UltimateCorpExperience() {
           inert={terminalOpen || mobileMenuOpen}
           className="relative z-20 w-full outline-none"
         >
-          {/* HERO — the executed command */}
+          {/* HERO — the field draws the mark. There is no DOM wordmark:
+              the signal field's dust condenses into "1337" (then the
+              corp's sigils) whenever the halo drifts near the hero's
+              centre — the sr-only h1 carries the name for readers and
+              crawlers. */}
           <section
             id="hero"
-            className="relative flex min-h-dvh w-full flex-col items-center justify-center bg-black/40 px-6 pt-16"
+            className="relative flex min-h-dvh w-full flex-col items-center justify-end bg-black/40 px-6 pb-36 pt-16 md:pb-40"
           >
             <h1 className="sr-only">1337 Corp — the quiet architects of what comes next.</h1>
-            <div className="z-10 space-y-10 text-center">
-              <div className="hero-rise" style={{ "--rise-delay": "0.1s" } as React.CSSProperties}>
-                <TypedPrompt reduced={reduced} />
-              </div>
-              <div
-                aria-hidden="true"
-                className="hero-rise"
-                style={{ "--rise-delay": "0.35s" } as React.CSSProperties}
-              >
-                <GlitchLogo />
-              </div>
+            <div className="z-10 space-y-6 text-center">
               <p
                 className="hero-rise mx-auto max-w-2xl text-statement font-extralight tracking-tight text-white/85"
-                style={{ "--rise-delay": "0.6s" } as React.CSSProperties}
+                style={{ "--rise-delay": "0.4s" } as React.CSSProperties}
               >
                 The quiet architects of what comes{" "}
                 <span className="font-normal text-[#00ff9f]">next</span>.
               </p>
+              <div
+                className="hero-rise flex items-center justify-center gap-3 font-mono text-[9px] uppercase tracking-[0.45em] text-white/40"
+                style={{ "--rise-delay": "0.7s" } as React.CSSProperties}
+              >
+                <span aria-hidden="true" className="h-1 w-1 bg-[#00ff9f]/70" />
+                APPROACH THE SIGNAL
+                <span aria-hidden="true" className="h-1 w-1 bg-[#00ff9f]/70" />
+              </div>
             </div>
             <button
               onClick={() => goTo("about")}

@@ -4,12 +4,13 @@ import React, { useEffect, useRef } from "react";
 import { hash01 } from "./graphics";
 
 // =========================================================================
-// SIGNAL FIELD — the page's single ambient canvas. Four systems share it:
+// SIGNAL FIELD — the page's single ambient canvas. Five systems share it:
 //
 //   1. The node lattice — the engineering sheet's living grid.
 //   2. Phosphor pulses — data moving through the lattice's lines.
 //   3. The speck field — a fine dust of signal points above the grid.
 //   4. The halo — a slow, breathing ring that excites whatever it touches.
+//   5. The glyph engine — the hero's wordmark, drawn by the dust itself.
 //
 // The halo is the interaction model. It never snaps to the pointer: it
 // *chases* it with heavy inertia, keeps gliding after the hand stops, and
@@ -22,6 +23,15 @@ import { hash01 } from "./graphics";
 // ping the field with an expanding sonar ring that displaces both specks
 // and lattice. On first mount the specks sweep in along a diagonal front
 // with a bright crest — a one-time reveal, never repeated on resize.
+//
+// The glyph engine is the hero itself. There is no DOM wordmark: when the
+// halo drifts near the hero's centre, the surrounding dust streams into
+// pre-assigned seats sampled from rendered type — "1337" first, then the
+// corp's sigils in rotation while the visitor stays close. Each speck
+// accelerates as it approaches its seat and ignites phosphor as it locks;
+// walk away and the mark dissolves back into dust. Because the halo's
+// idle wander orbits the same centre, the mark also assembles on its own
+// moments after load — and on touch devices, where no cursor exists.
 // =========================================================================
 
 interface LatticeNode {
@@ -67,9 +77,18 @@ interface Speck {
   oy: number;
   /** Angle to the last excitation source — orients the dash. */
   exAngle: number;
+  /** Glyph seat (absolute px), valid when tStamp matches the frame stamp. */
+  tx: number;
+  ty: number;
+  tStamp: number;
+  /** 0..1 morph blend: how far this speck belongs to the glyph vs the dust. */
+  mw: number;
+  /** Current morph position — streams toward the seat while captured. */
+  mx: number;
+  my: number;
 }
 
-/** An expanding sonar ring born from a pointer tap. */
+/** An expanding sonar ring born from a pointer tap or a glyph morph. */
 interface Ripple {
   x: number;
   y: number;
@@ -78,6 +97,13 @@ interface Ripple {
 }
 
 const TAU = Math.PI * 2;
+
+// The hero's rotation: the wordmark leads, then the corp's sigils while
+// the visitor stays close. Rendered type, sampled to dust seats.
+const GLYPHS = ["1337", "{ }", ">_", "$"] as const;
+const GLYPH_FONT_PX = 300;
+/** Frames a glyph holds before rotating to the next (~5.5 s). */
+const GLYPH_HOLD_FRAMES = 330;
 
 const smoothstep = (edge0: number, edge1: number, x: number): number => {
   const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
@@ -147,6 +173,7 @@ const SignalField: React.FC<{
     }
 
     let animFrameId: number;
+    let alive = true;
     let nodes: LatticeNode[] = [];
     let specks: Speck[] = [];
     let pulses: SignalPulse[] = [];
@@ -162,6 +189,23 @@ const SignalField: React.FC<{
     // Frames elapsed of the one-time reveal. Deliberately NOT reset by
     // resize(): rotating a phone must not replay the intro.
     let introFrame = reduced ? INTRO_FRAMES : 0;
+
+    // --- GLYPH ENGINE STATE ------------------------------------------------
+    // Seat lists per glyph: which speck sits where (seat coords relative to
+    // the glyph centre, so scrolling never needs a rebuild).
+    let glyphSets: { si: number; rx: number; ry: number }[][] = [];
+    let glyphIdx = 0;
+    /** Eased 0..1 assembly progress (the "hover" of the morph). */
+    let hoverE = 0;
+    let wasNear = false;
+    let glyphHold = 0;
+    /** Per-frame stamp marking which specks are currently seated. */
+    let stamp = 1;
+    /** Capture radius: dust farther than this from its seat never moves. */
+    let gatherR = 320;
+    // Type is rasterized into this offscreen buffer and sampled to points.
+    // Never in the DOM — the page still runs exactly one visible canvas.
+    const sampler = document.createElement("canvas");
 
     const spawnPulse = (): SignalPulse => {
       const h = window.innerHeight;
@@ -200,6 +244,30 @@ const SignalField: React.FC<{
       }
     };
 
+    const makeSpeck = (x: number, y: number, a: number, b: number): Speck => ({
+      baseX: x,
+      baseY: y,
+      size: 0.7 + hash01(a * 3.7 + b * 9.1) * 0.7,
+      spark: hash01(a * 21.3 + b * 44.7) ** 2,
+      depth: cloud01(x, y),
+      phase: hash01(a * 5.9 + b * 31.4) * TAU,
+      rate: 0.5 + hash01(a * 71.7 + b * 13.3) * 1.3,
+      cyan: hash01(a * 91.4 + b * 53.1) > 0.85,
+      heat: 0,
+      ox: 0,
+      oy: 0,
+      exAngle: 0,
+      tx: 0,
+      ty: 0,
+      tStamp: 0,
+      mw: 0,
+      mx: 0,
+      my: 0,
+    });
+
+    /** Specks seeded by the viewport grid — glyph dust is appended after. */
+    let baseSpeckCount = 0;
+
     const initSpecks = (w: number, h: number) => {
       specks = [];
       // Jittered stratified grid: blue-noise-ish spread with zero clumping,
@@ -212,22 +280,143 @@ const SignalField: React.FC<{
         for (let j = 0; j < rows; j++) {
           const x = (i + 0.12 + hash01(i * 12.9898 + j * 78.233) * 0.76) * cell;
           const y = (j + 0.12 + hash01(i * 39.425 + j * 11.135) * 0.76) * cell;
-          specks.push({
-            baseX: x,
-            baseY: y,
-            size: 0.7 + hash01(i * 3.7 + j * 9.1) * 0.7,
-            spark: hash01(i * 21.3 + j * 44.7) ** 2,
-            depth: cloud01(x, y),
-            phase: hash01(i * 5.9 + j * 31.4) * TAU,
-            rate: 0.5 + hash01(i * 71.7 + j * 13.3) * 1.3,
-            cyan: hash01(i * 91.4 + j * 53.1) > 0.85,
-            heat: 0,
-            ox: 0,
-            oy: 0,
-            exAngle: 0,
-          });
+          specks.push(makeSpeck(x, y, i, j));
         }
       }
+      baseSpeckCount = specks.length;
+    };
+
+    /**
+     * Rasterize each glyph, sample it into seat points, top the hero region
+     * up with extra dust so every seat can be filled, and assign each seat
+     * its nearest speck. Idempotent: re-running (resize, font arrival)
+     * first drops previously-added dust.
+     */
+    const buildGlyphs = (w: number, h: number) => {
+      glyphSets = [];
+      specks.length = baseSpeckCount;
+      const g2 = sampler.getContext("2d");
+      if (!g2) {
+        console.error("signal field: glyph sampler context unavailable, assembly disabled");
+        return;
+      }
+
+      gatherR = Math.min(Math.min(w, h) * 0.32, 420);
+      const mono = getComputedStyle(document.documentElement)
+        .getPropertyValue("--font-geist-mono")
+        .trim();
+      const font = `600 ${GLYPH_FONT_PX}px ${mono ? `${mono},` : ""} ui-monospace, monospace`;
+      // Phones get a floor so the mark keeps presence on narrow screens.
+      const wordW = Math.min(Math.max(w * 0.66, 320), 860, w * 0.92);
+      const gy0 = h * 0.44;
+      const SW = 1500;
+      const SH = 560;
+
+      // The wordmark spans the hero column; the sigils match its cap
+      // height so the rotation never jumps in visual weight.
+      let wordH = wordW * 0.28;
+      const pts: { rx: number; ry: number }[][] = GLYPHS.map((text, gi) => {
+        sampler.width = SW;
+        sampler.height = SH;
+        g2.font = font;
+        g2.textAlign = "center";
+        g2.textBaseline = "middle";
+        g2.fillStyle = "#fff";
+        const met = g2.measureText(text);
+        const tw = Math.max(met.width, 1);
+        const th = Math.max(
+          (met.actualBoundingBoxAscent || GLYPH_FONT_PX * 0.72) +
+            (met.actualBoundingBoxDescent || GLYPH_FONT_PX * 0.08),
+          1
+        );
+        const scale = gi === 0 ? wordW / tw : Math.min((wordH * 1.25) / th, wordW / tw);
+        if (gi === 0) wordH = th * scale;
+        g2.fillText(text, SW / 2, SH / 2);
+
+        // Seat pitch ~5.5–8 px on screen keeps stroke weight consistent
+        // across viewport sizes and glyph shapes — wide enough that seated
+        // dots stay distinct (a dot matrix), never a solid fill.
+        const stepScreen = Math.min(8, Math.max(5.5, wordW / 100));
+        const step = Math.max(2, stepScreen / scale);
+        const img = g2.getImageData(0, 0, SW, SH).data;
+        const out: { rx: number; ry: number }[] = [];
+        for (let sy = step / 2; sy < SH; sy += step) {
+          for (let sx = step / 2; sx < SW; sx += step) {
+            const a = img[((sy | 0) * SW + (sx | 0)) * 4 + 3];
+            if (a > 110) {
+              const k = out.length;
+              out.push({
+                rx: (sx - SW / 2) * scale + (hash01(k * 12.7 + gi * 5.3) - 0.5) * 2.4,
+                ry: (sy - SH / 2) * scale + (hash01(k * 31.1 + gi * 8.9) - 0.5) * 2.4,
+              });
+            }
+          }
+        }
+        return out;
+      });
+
+      const maxPts = Math.max(...pts.map((p) => p.length));
+      if (maxPts === 0) return;
+
+      // Densify the hero band so the largest glyph always finds enough
+      // dust nearby. The extras are ordinary specks — indistinguishable
+      // until captured.
+      const regionW = wordW * 0.85;
+      const regionH = Math.max(wordH * 2.4, 260);
+      let inRegion = 0;
+      for (const s of specks) {
+        if (Math.abs(s.baseX - w / 2) < regionW && Math.abs(s.baseY - gy0) < regionH) inRegion++;
+      }
+      const dustNeed = Math.max(0, Math.ceil(maxPts * 1.35) - inRegion);
+      for (let k = 0; k < dustNeed; k++) {
+        const x = w / 2 + (hash01(k * 17.31 + 3.7) - 0.5) * 2 * regionW;
+        const y = gy0 + (hash01(k * 29.17 + 8.1) - 0.5) * 2 * regionH;
+        specks.push(makeSpeck(x, y, k * 1.618, k * 2.71));
+      }
+
+      // Nearest-dust seat assignment, visited in hash-shuffled order so
+      // neighbouring seats don't drain the same corner of the region.
+      const region: number[] = [];
+      for (let i = 0; i < specks.length; i++) {
+        const s = specks[i];
+        if (
+          Math.abs(s.baseX - w / 2) < regionW * 1.2 &&
+          Math.abs(s.baseY - gy0) < regionH * 1.25
+        ) {
+          region.push(i);
+        }
+      }
+      const gather2 = gatherR * gatherR;
+      glyphSets = pts.map((set, gi) => {
+        const used = new Uint8Array(specks.length);
+        const order = set
+          .map((p, k) => ({ p, r: hash01(k * 7.77 + gi * 13.13) }))
+          .sort((a, b) => a.r - b.r)
+          .map((o) => o.p);
+        const arr: { si: number; rx: number; ry: number }[] = [];
+        for (const p of order) {
+          const ax = w / 2 + p.rx;
+          const ay = gy0 + p.ry;
+          let best = -1;
+          let bd = gather2;
+          for (const si of region) {
+            if (used[si]) continue;
+            const s = specks[si];
+            const dx = s.baseX - ax;
+            const dy = s.baseY - ay;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < bd) {
+              bd = d2;
+              best = si;
+            }
+          }
+          if (best >= 0) {
+            used[best] = 1;
+            arr.push({ si: best, rx: p.rx, ry: p.ry });
+          }
+        }
+        return arr;
+      });
     };
 
     const resize = () => {
@@ -247,6 +436,7 @@ const SignalField: React.FC<{
 
       initNodes(w, h);
       initSpecks(w, h);
+      buildGlyphs(w, h);
       pulses = Array.from({ length: PULSE_COUNT }, spawnPulse);
       halo.x = w * 0.5;
       halo.y = h * 0.4;
@@ -283,6 +473,14 @@ const SignalField: React.FC<{
     window.addEventListener("pointerup", handlePointerUp);
     window.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("mouseleave", handleMouseLeave);
+
+    // The wordmark should be set in the site's real mono face. If the font
+    // lands after mount, resample the glyph seats once it does.
+    document.fonts?.ready.then(() => {
+      if (!alive) return;
+      buildGlyphs(window.innerWidth, window.innerHeight);
+      if (reduced) loop();
+    });
 
     let time = 0;
 
@@ -333,6 +531,56 @@ const SignalField: React.FC<{
       // Breathing radius — two incommensurate sines so it never loops cleanly.
       const R =
         Math.min(w, h) * 0.155 * (1 + 0.1 * Math.sin(time * 4) + 0.06 * Math.cos(time * 9));
+
+      // --- GLYPH DRIVER ------------------------------------------------------
+      // The mark is anchored to the page (it scrolls away with the hero),
+      // and assembly is gated on the halo's distance — so the trailing,
+      // wandering ring is what "reaches" the mark, not the raw pointer.
+      const scrollYpx = window.scrollY || 0;
+      const gx = w / 2;
+      const gy = h * 0.44 - scrollYpx;
+      const glyphFade = 1 - smoothstep(h * 0.45, h * 0.95, scrollYpx);
+      const seats = glyphSets[glyphIdx];
+      let near = false;
+      if (seats && seats.length > 0 && glyphFade > 0.02) {
+        near = reduced || Math.hypot(halo.x - gx, halo.y - gy) < gatherR * 1.2;
+      }
+      // Arrival and every rotation fire the same shockwave a tap does —
+      // the field announces the morph.
+      if (near && !wasNear && !reduced) {
+        ripples.push({ x: gx, y: gy, progress: 0 });
+        if (ripples.length > 4) ripples.shift();
+      }
+      wasNear = near;
+      hoverE += ((near ? glyphFade : 0) - hoverE) * (reduced ? 1 : 0.05);
+      if (hoverE < 0.002) hoverE = 0;
+      // The rotation runs only under a live pointer: the halo's own wander
+      // assembles the wordmark and holds it — an untouched page (or a
+      // phone) always shows the brand, never a mid-rotation sigil. The
+      // wordmark also holds twice as long as the sigils that follow it.
+      if (!reduced && near && hoverE > 0.9 && mouse.active) {
+        glyphHold++;
+        if (glyphHold > GLYPH_HOLD_FRAMES * (glyphIdx === 0 ? 2 : 1)) {
+          glyphHold = 0;
+          glyphIdx = (glyphIdx + 1) % GLYPHS.length;
+          ripples.push({ x: gx, y: gy, progress: 0 });
+          if (ripples.length > 4) ripples.shift();
+        }
+      } else if (!near) {
+        glyphHold = 0;
+        // Once fully dissolved, the rotation resets so the wordmark
+        // always leads the next assembly.
+        if (hoverE === 0) glyphIdx = 0;
+      }
+      stamp++;
+      if (seats && hoverE > 0.01) {
+        for (const seat of seats) {
+          const s = specks[seat.si];
+          s.tStamp = stamp;
+          s.tx = gx + seat.rx;
+          s.ty = gy + seat.ry;
+        }
+      }
 
       // --- ONE-TIME REVEAL SWEEP -------------------------------------------
       if (!reduced && introFrame < INTRO_FRAMES) introFrame++;
@@ -481,6 +729,43 @@ const SignalField: React.FC<{
         const px = s.baseX + driftX;
         const py = s.baseY + driftY;
 
+        // --- Glyph capture: seated specks stream toward their seat,
+        // accelerating as they close in; released specks blend back to dust.
+        const seated = s.tStamp === stamp && hoverE > 0.01;
+        let mwS = 0;
+        let lock = 0;
+        let travelA = 0;
+        let travelD = 0;
+        if (seated || s.mw > 0.002) {
+          if (seated) {
+            // Capture begins from wherever the dust happens to be.
+            if (s.mw < 0.002) {
+              s.mx = px;
+              s.my = py;
+            }
+            const ddx = s.tx - s.mx;
+            const ddy = s.ty - s.my;
+            const dd = Math.hypot(ddx, ddy);
+            if (reduced) {
+              s.mx = s.tx;
+              s.my = s.ty;
+              s.mw = 1;
+            } else {
+              const strength = smoothstep(gatherR, gatherR * 0.12, dd);
+              const rate = (0.02 + 0.15 * strength) * hoverE;
+              s.mx += ddx * rate;
+              s.my += ddy * rate;
+              s.mw += (hoverE - s.mw) * 0.07;
+            }
+            lock = 1 - Math.min(1, dd / 70);
+            travelA = Math.atan2(ddy, ddx);
+            travelD = dd;
+          } else {
+            s.mw *= 0.93;
+          }
+          mwS = s.mw * s.mw * (3 - 2 * s.mw);
+        }
+
         // Excitation is measured from the undisplaced position, so the
         // spring can never feed back into its own trigger and oscillate.
         let target = 0;
@@ -533,16 +818,28 @@ const SignalField: React.FC<{
           if (g > 0.25) s.exAngle = Math.atan2(dy, dx);
         }
 
+        // Seated specks ignite with the assembly instead of the halo band —
+        // and shrug off the shockwaves, or every morph pulse would scatter
+        // the mark it announces.
+        const morphGlow = mwS * (0.35 + 0.65 * lock);
+        if (morphGlow > target) target = morphGlow;
+        pushX *= 1 - mwS;
+        pushY *= 1 - mwS;
+
         // Heat charges fast and drains slow — the comet-trail asymmetry.
-        if (target > s.heat) s.heat += (target - s.heat) * 0.16;
+        if (reduced) s.heat = target;
+        else if (target > s.heat) s.heat += (target - s.heat) * 0.16;
         else s.heat *= 0.982;
         if (s.heat < 0.001) s.heat = 0;
 
         // Springy displacement: eases out toward the push, back when it ends.
         s.ox += (pushX - s.ox) * 0.09;
         s.oy += (pushY - s.oy) * 0.09;
-        const x = px + s.ox;
-        const y = py + s.oy;
+        // Seated specks trade their dust position for their seat; a hair of
+        // jitter keeps a locked mark alive rather than frozen.
+        const jit = lock > 0.8 && !reduced ? Math.sin(time * 22 + s.phase) * 0.5 : 0;
+        const x = (px + s.ox) * (1 - mwS) + s.mx * mwS + jit;
+        const y = (py + s.oy) * (1 - mwS) + s.my * mwS + jit;
 
         // Twinkle: two beating sines, product squared — long faint stretches
         // broken by brief bright activations, different for every speck.
@@ -554,7 +851,8 @@ const SignalField: React.FC<{
         const heat = Math.min(1, s.heat);
         let alpha =
           (0.05 + 0.3 * s.spark) * (0.5 + 0.5 * s.depth) * (0.55 + 1.1 * f) * fieldAlpha +
-          heat * 0.75;
+          heat * 0.75 +
+          mwS * (0.15 + 0.45 * lock);
         let sizeScale = 1;
         let drawHeat = heat;
 
@@ -571,11 +869,32 @@ const SignalField: React.FC<{
           if (crest * 0.8 > drawHeat) drawHeat = crest * 0.8;
         }
 
-        const half = s.size * (0.78 + 0.5 * s.depth) * (1 + heat * 1.5) * sizeScale;
-        const ramp = s.cyan ? CYAN_RAMP : PHOSPHOR_RAMP;
+        // Seated specks converge on a small fixed pixel so the mark reads
+        // as a crisp dot matrix; loose dust keeps its heat-swollen size.
+        const dustHalf = s.size * (0.78 + 0.5 * s.depth) * (1 + heat * 1.5) * sizeScale;
+        const seatHalf = 1.05 + lock * 0.65;
+        const half = dustHalf * (1 - mwS) + seatHalf * mwS;
+        // The mark is always phosphor — cyan minority specks recolor while
+        // seated, or the glyph reads as noise instead of brand.
+        const ramp = s.cyan && mwS < 0.3 ? CYAN_RAMP : PHOSPHOR_RAMP;
+        if (mwS > 0.3) {
+          const seatedHeat = mwS * (0.5 + 0.5 * lock);
+          if (seatedHeat > drawHeat) drawHeat = seatedHeat;
+        }
         ctx.globalAlpha = Math.min(1, alpha);
 
-        if (heat > 0.45) {
+        if (!reduced && mwS > 0.15 && travelD > 12) {
+          // Streaming to its seat: a motion streak along the travel vector.
+          const len = Math.min(14, 3 + travelD * 0.22) * mwS * 0.5;
+          const ca = Math.cos(travelA) * len;
+          const sa = Math.sin(travelA) * len;
+          ctx.strokeStyle = ramp[rampIndex(drawHeat)];
+          ctx.lineWidth = Math.max(1, half);
+          ctx.beginPath();
+          ctx.moveTo(x - ca, y - sa);
+          ctx.lineTo(x + ca, y + sa);
+          ctx.stroke();
+        } else if (heat > 0.45 && mwS < 0.5) {
           // Ring-excited specks stretch into short dashes aligned around
           // their excitation source — the swirl signature of the halo.
           const ang = s.exAngle + Math.PI / 2 + Math.sin(time * 18 + s.phase) * 0.4;
@@ -623,6 +942,7 @@ const SignalField: React.FC<{
     animFrameId = requestAnimationFrame(loop);
 
     return () => {
+      alive = false;
       window.removeEventListener("resize", resize);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
