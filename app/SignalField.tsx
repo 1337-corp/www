@@ -81,6 +81,13 @@ interface Speck {
   tx: number;
   ty: number;
   tStamp: number;
+  /**
+   * Seat weight: 1 = a true seat on the mark; <1 = gravitational lean —
+   * unseated dust near the mark is pulled partway toward its nearest
+   * stroke, harder the closer it sits, so the glyph warps the field
+   * around it instead of just appearing in it.
+   */
+  tWt: number;
   /** 0..1 morph blend: how far this speck belongs to the glyph vs the dust. */
   mw: number;
   /** Current morph position — streams toward the seat while captured. */
@@ -246,8 +253,9 @@ const SignalField: React.FC<{
 
     // --- GLYPH ENGINE STATE ------------------------------------------------
     // Seat lists per glyph: which speck sits where (seat coords relative to
-    // the glyph centre, so scrolling never needs a rebuild).
-    let glyphSets: { si: number; rx: number; ry: number }[][] = [];
+    // the glyph centre, so scrolling never needs a rebuild). Entries with
+    // w = 1 are true seats; fractional w entries are the gravity aura.
+    let glyphSets: { si: number; rx: number; ry: number; w: number }[][] = [];
     let glyphIdx = 0;
     /** Eased 0..1 assembly progress (the "hover" of the morph). */
     let hoverE = 0;
@@ -314,6 +322,7 @@ const SignalField: React.FC<{
       tx: 0,
       ty: 0,
       tStamp: 0,
+      tWt: 0,
       mw: 0,
       mx: 0,
       my: 0,
@@ -453,7 +462,7 @@ const SignalField: React.FC<{
           .map((p, k) => ({ p, r: hash01(k * 7.77 + gi * 13.13) }))
           .sort((a, b) => a.r - b.r)
           .map((o) => o.p);
-        const arr: { si: number; rx: number; ry: number }[] = [];
+        const arr: { si: number; rx: number; ry: number; w: number }[] = [];
         for (const p of order) {
           const ax = w / 2 + p.rx;
           const ay = gy0 + p.ry;
@@ -472,8 +481,33 @@ const SignalField: React.FC<{
           }
           if (best >= 0) {
             used[best] = 1;
-            arr.push({ si: best, rx: p.rx, ry: p.ry });
+            arr.push({ si: best, rx: p.rx, ry: p.ry, w: 1 });
           }
+        }
+        // The gravity aura: every unseated speck in reach leans toward the
+        // glyph's nearest stroke point, harder the closer it sits, so the
+        // forming mark visibly pulls the field around it.
+        for (const si of region) {
+          if (used[si]) continue;
+          const s = specks[si];
+          let bx = 0;
+          let by = 0;
+          let bd = Infinity;
+          for (const p of set) {
+            const dx = s.baseX - (w / 2 + p.rx);
+            const dy = s.baseY - (gy0 + p.ry);
+            const d2 = dx * dx + dy * dy;
+            if (d2 < bd) {
+              bd = d2;
+              bx = p.rx;
+              by = p.ry;
+            }
+          }
+          const d0 = Math.sqrt(bd);
+          if (d0 >= gatherR) continue;
+          const wt = 0.5 * Math.pow(1 - d0 / gatherR, 1.5);
+          if (wt < 0.05) continue;
+          arr.push({ si, rx: bx, ry: by, w: wt });
         }
         return arr;
       });
@@ -639,6 +673,7 @@ const SignalField: React.FC<{
           s.tStamp = stamp;
           s.tx = gx + seat.rx;
           s.ty = gy + seat.ry;
+          s.tWt = seat.w;
         }
       }
 
@@ -809,13 +844,15 @@ const SignalField: React.FC<{
             if (reduced) {
               s.mx = s.tx;
               s.my = s.ty;
-              s.mw = 1;
+              s.mw = s.tWt;
             } else {
               const strength = smoothstep(gatherR, gatherR * 0.12, dd);
               const rate = (0.02 + 0.15 * strength) * hoverE;
               s.mx += ddx * rate;
               s.my += ddy * rate;
-              s.mw += (hoverE - s.mw) * 0.07;
+              // Blend is capped by seat weight: true seats land on the
+              // mark; aura dust only ever leans partway toward it.
+              s.mw += (hoverE * s.tWt - s.mw) * 0.07;
             }
             lock = 1 - Math.min(1, dd / 70);
             travelA = Math.atan2(ddy, ddx);
